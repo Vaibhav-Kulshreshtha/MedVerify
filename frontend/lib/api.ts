@@ -76,22 +76,65 @@ let resolvedApiBase: string | null = null;
 export const API_BASE_URL = DEFAULT_API_BASE_URL;
 
 /**
- * Returns prioritized API endpoint candidates to ensure connectivity across
- * Safari, Chrome, localhost, 127.0.0.1, and Next.js proxy rewrite.
+ * Retrieves user-configured backend URL from browser localStorage if available.
  */
-function getCandidateUrls(): string[] {
+export function getStoredApiUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem('MEDVERIFY_API_URL')?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stores custom backend URL to browser localStorage and clears active cache.
+ */
+export function setStoredApiUrl(url: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (url && url.trim()) {
+      const clean = url.trim().replace(/\/+$/, '');
+      localStorage.setItem('MEDVERIFY_API_URL', clean);
+      resolvedApiBase = clean;
+    } else {
+      localStorage.removeItem('MEDVERIFY_API_URL');
+      resolvedApiBase = null;
+    }
+  } catch {}
+}
+
+/**
+ * Returns prioritized API endpoint candidates to ensure connectivity across
+ * production (Vercel + Render), custom URL, Safari, Chrome, localhost, and Next.js proxy.
+ */
+export function getCandidateUrls(): string[] {
   const candidates: string[] = [];
 
-  if (resolvedApiBase) {
+  // 1. Cached working endpoint
+  if (resolvedApiBase && !candidates.includes(resolvedApiBase)) {
     candidates.push(resolvedApiBase);
   }
 
+  // 2. Custom override from localStorage
+  const stored = getStoredApiUrl();
+  if (stored && !candidates.includes(stored)) {
+    candidates.push(stored);
+  }
+
+  // 3. NEXT_PUBLIC_API_URL environment variable
   const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
   if (envUrl && !candidates.includes(envUrl)) {
     candidates.push(envUrl);
   }
 
-  // Check if running in a remote production browser environment
+  // 4. Same-origin Next.js reverse proxy rewrite
+  const proxyUrl = '/api/backend';
+  if (!candidates.includes(proxyUrl)) {
+    candidates.push(proxyUrl);
+  }
+
+  // 5. Localhost direct (ONLY on local machine, NOT when deployed to Vercel HTTPS)
   const isBrowser = typeof window !== 'undefined';
   const isLocalhost = !isBrowser || (
     window.location.hostname === 'localhost' ||
@@ -99,7 +142,6 @@ function getCandidateUrls(): string[] {
     window.location.hostname === '0.0.0.0'
   );
 
-  // Only fall back to local direct endpoints when developing locally
   if (isLocalhost) {
     const ipv4Direct = 'http://127.0.0.1:8000';
     if (!candidates.includes(ipv4Direct)) {
@@ -112,13 +154,11 @@ function getCandidateUrls(): string[] {
     }
   }
 
-  // Next.js reverse proxy rewrite (same-origin)
-  const proxyUrl = '/api/backend';
-  if (!candidates.includes(proxyUrl)) {
-    candidates.push(proxyUrl);
-  }
-
   return candidates;
+}
+
+export function getEffectiveApiUrl(): string {
+  return resolvedApiBase || getStoredApiUrl() || process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE_URL;
 }
 
 /**
@@ -149,7 +189,7 @@ async function fetchWithFallback(
     }
   }
 
-  throw lastError || new Error(`Failed to communicate with diagnostic engine at ${DEFAULT_API_BASE_URL}`);
+  throw lastError || new Error(`Failed to communicate with diagnostic engine at ${getEffectiveApiUrl()}`);
 }
 
 /**
@@ -266,12 +306,40 @@ export async function fetchBrands(): Promise<MedicineBrand[]> {
 }
 
 /**
- * Checks backend health status.
+ * Checks backend health status across configured or specific target URL.
  */
-export async function checkBackendHealth(): Promise<{
+export async function checkBackendHealth(targetBase?: string): Promise<{
   isOnline: boolean;
   message?: string;
+  activeUrl: string;
 }> {
+  if (targetBase && targetBase.trim()) {
+    const clean = targetBase.trim().replace(/\/+$/, '');
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(`${clean}/health`, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        resolvedApiBase = clean;
+        setStoredApiUrl(clean);
+        return { isOnline: true, activeUrl: clean };
+      }
+      return { isOnline: false, message: `HTTP status ${res.status}`, activeUrl: clean };
+    } catch (err: unknown) {
+      return {
+        isOnline: false,
+        message: err instanceof Error ? err.message : 'Connection timeout or network failure',
+        activeUrl: clean,
+      };
+    }
+  }
+
   try {
     const res = await fetchWithFallback('/health', {
       method: 'GET',
@@ -280,13 +348,14 @@ export async function checkBackendHealth(): Promise<{
 
     if (res.ok) {
       const data: BackendHealthResponse = await res.json();
-      return { isOnline: data.status === 'healthy' };
+      return { isOnline: data.status === 'healthy', activeUrl: getEffectiveApiUrl() };
     }
-    return { isOnline: false, message: `Status: ${res.status}` };
+    return { isOnline: false, message: `Status: ${res.status}`, activeUrl: getEffectiveApiUrl() };
   } catch {
     return {
       isOnline: false,
-      message: `Backend unreachable at ${resolvedApiBase || DEFAULT_API_BASE_URL}`,
+      message: `Backend unreachable at ${getEffectiveApiUrl()}`,
+      activeUrl: getEffectiveApiUrl(),
     };
   }
 }
