@@ -24,28 +24,28 @@ export function HowItWorks() {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-clinical-panel/60 hover:bg-clinical-panel px-4 sm:px-6 py-3.5 flex items-center justify-between text-left transition-colors cursor-pointer group"
+        className="w-full bg-clinical-panel/60 hover:bg-clinical-panel px-3.5 sm:px-6 py-3 sm:py-3.5 min-h-[48px] flex items-center justify-between text-left transition-colors cursor-pointer group"
       >
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-[2px] bg-white border border-clinical-border text-clinical-navy group-hover:border-clinical-navy transition-colors">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-1.5 rounded-[2px] bg-white border border-clinical-border text-clinical-navy group-hover:border-clinical-navy transition-colors flex-shrink-0">
             <Cpu className="w-4 h-4 stroke-[1.75]" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-serif text-sm sm:text-base font-bold text-clinical-navy">
+              <span className="font-serif text-xs sm:text-base font-bold text-clinical-navy">
                 How It Works: Reference-Free &amp; Optical Detection Architecture
               </span>
-              <span className="text-[10px] font-mono uppercase bg-clinical-navy text-white px-1.5 py-0.5 rounded-[2px]">
+              <span className="text-[9px] sm:text-[10px] font-mono uppercase bg-clinical-navy text-white px-1.5 py-0.5 rounded-[2px]">
                 Universal Inspection
               </span>
             </div>
-            <p className="text-xs font-sans text-clinical-subtext mt-0.5">
+            <p className="text-[11px] sm:text-xs font-sans text-clinical-subtext mt-0.5 truncate sm:whitespace-normal">
               Explainable multi-modal computer vision and regulatory forensic engine for ANY medicine packaging
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs font-mono text-clinical-muted flex-shrink-0 ml-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs font-mono text-clinical-muted flex-shrink-0 ml-2">
           <span className="hidden sm:inline">
             {isOpen ? '[HIDE ARCHITECTURE]' : '[EXPLAIN CHECKS]'}
           </span>

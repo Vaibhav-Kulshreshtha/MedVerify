@@ -20,7 +20,7 @@ export function BackendStatusBadge() {
 
   return (
     <div
-      className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-[4px] text-xs font-mono border transition-colors ${
+      className={`inline-flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-[4px] text-[11px] sm:text-xs font-mono border transition-colors select-none ${
         isOnline === null
           ? 'bg-clinical-panel border-clinical-border text-clinical-muted'
           : isOnline
@@ -30,7 +30,7 @@ export function BackendStatusBadge() {
       title={`Diagnostics API Gateway: ${API_BASE_URL}`}
     >
       <span
-        className={`w-1.5 h-1.5 rounded-[1px] ${
+        className={`w-1.5 h-1.5 rounded-[1px] flex-shrink-0 ${
           isOnline === null
             ? 'bg-clinical-muted'
             : isOnline
@@ -39,17 +39,19 @@ export function BackendStatusBadge() {
         }`}
       />
       {isOnline === null ? (
-        <span className="tracking-tight text-[11px] sm:text-xs">CHECKING...</span>
+        <span className="tracking-tight text-[10px] sm:text-xs">CHECKING...</span>
       ) : isOnline ? (
-        <span className="flex items-center gap-1.5 tracking-tight font-medium text-[11px] sm:text-xs">
-          <Activity className="w-3.5 h-3.5 stroke-[1.5]" />
-          <span className="hidden sm:inline">API GATEWAY: </span>ONLINE
-          <span className="hidden md:inline"> [PORT 8000]</span>
+        <span className="flex items-center gap-1 tracking-tight font-medium text-[10px] sm:text-xs">
+          <Activity className="w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[1.5] flex-shrink-0" />
+          <span className="hidden sm:inline">API: </span>
+          <span>ONLINE</span>
+          <span className="hidden md:inline text-clinical-muted"> [8000]</span>
         </span>
       ) : (
-        <span className="flex items-center gap-1.5 tracking-tight font-medium text-[11px] sm:text-xs">
-          <AlertCircle className="w-3.5 h-3.5 stroke-[1.5]" />
-          <span className="hidden sm:inline">API GATEWAY: </span>OFFLINE
+        <span className="flex items-center gap-1 tracking-tight font-medium text-[10px] sm:text-xs">
+          <AlertCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[1.5] flex-shrink-0" />
+          <span className="hidden sm:inline">API: </span>
+          <span>OFFLINE</span>
         </span>
       )}
     </div>

@@ -35,13 +35,13 @@ export default function Home() {
   return (
     <div className="space-y-6">
       {/* Laboratory Title & Protocol Bar */}
-      <div className="border-b border-clinical-border pb-5 flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="border-b border-clinical-border pb-4 sm:pb-5 flex flex-col md:flex-row md:items-end justify-between gap-3.5 sm:gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 text-xs font-mono text-clinical-navy font-semibold uppercase tracking-wider mb-1.5">
-            <span className="w-2 h-2 rounded-[1px] bg-clinical-navy"></span>
-            DIAGNOSTIC PROTOCOL MV-REV-4.2 // SPECIMEN VERIFICATION
+          <div className="inline-flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs font-mono text-clinical-navy font-semibold uppercase tracking-wider mb-1.5 flex-wrap">
+            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-[1px] bg-clinical-navy flex-shrink-0"></span>
+            <span>DIAGNOSTIC PROTOCOL MV-REV-4.2 // SPECIMEN VERIFICATION</span>
           </div>
-          <h1 className="font-serif text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-clinical-navy">
+          <h1 className="font-serif text-xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-clinical-navy leading-tight">
             Pharmaceutical Packaging Verification &amp; Tamper Audit
           </h1>
           <p className="text-xs sm:text-sm font-sans text-clinical-subtext mt-1 max-w-3xl leading-relaxed">
@@ -50,14 +50,14 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-mono text-clinical-muted self-start md:self-end">
-          <div className="border border-clinical-border bg-clinical-surface px-2.5 sm:px-3 py-1.5 rounded-[4px] shadow-hairline">
-            <span className="block text-[10px] text-clinical-muted">STANDARDS COMPLIANCE</span>
-            <span className="text-clinical-navy font-semibold">WHO-GSP / ISO-17025</span>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-mono text-clinical-muted self-start md:self-end w-full md:w-auto">
+          <div className="border border-clinical-border bg-clinical-surface px-2.5 sm:px-3 py-1.5 rounded-[4px] shadow-hairline flex-1 xs:flex-none">
+            <span className="block text-[9px] sm:text-[10px] text-clinical-muted">STANDARDS COMPLIANCE</span>
+            <span className="text-clinical-navy font-semibold text-[11px] sm:text-xs">WHO-GSP / ISO-17025</span>
           </div>
-          <div className="border border-clinical-border bg-clinical-surface px-2.5 sm:px-3 py-1.5 rounded-[4px] shadow-hairline">
-            <span className="block text-[10px] text-clinical-muted">ANALYTICAL ENGINE</span>
-            <span className="text-clinical-navy font-semibold">OPENCV + NUMPY CV</span>
+          <div className="border border-clinical-border bg-clinical-surface px-2.5 sm:px-3 py-1.5 rounded-[4px] shadow-hairline flex-1 xs:flex-none">
+            <span className="block text-[9px] sm:text-[10px] text-clinical-muted">ANALYTICAL ENGINE</span>
+            <span className="text-clinical-navy font-semibold text-[11px] sm:text-xs">OPENCV + NUMPY CV</span>
           </div>
         </div>
       </div>
