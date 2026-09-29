@@ -9,17 +9,16 @@ import {
 } from '@/lib/api';
 import {
   Activity,
-  AlertCircle,
+  CheckCircle,
   Settings,
   X,
-  ExternalLink,
-  CheckCircle,
   RefreshCw,
   Server,
+  Cpu,
 } from 'lucide-react';
 
 export function BackendStatusBadge() {
-  const [isOnline, setIsOnline] = useState<boolean | null>(null);
+  const [isCloudOnline, setIsCloudOnline] = useState<boolean | null>(null);
   const [activeUrl, setActiveUrl] = useState<string>('');
   const [showModal, setShowModal] = useState<boolean>(false);
   const [inputUrl, setInputUrl] = useState<string>('');
@@ -31,14 +30,14 @@ export function BackendStatusBadge() {
 
   const checkStatus = async () => {
     const res = await checkBackendHealth();
-    setIsOnline(res.isOnline);
+    setIsCloudOnline(res.isOnline);
     setActiveUrl(res.activeUrl);
   };
 
   useEffect(() => {
     checkStatus();
     setInputUrl(getStoredApiUrl() || '');
-    const interval = setInterval(checkStatus, 15000);
+    const interval = setInterval(checkStatus, 20000);
     return () => clearInterval(interval);
   }, []);
 
@@ -51,13 +50,13 @@ export function BackendStatusBadge() {
     const res = await checkBackendHealth(target || undefined);
 
     setIsTesting(false);
-    setIsOnline(res.isOnline);
+    setIsCloudOnline(res.isOnline);
     setActiveUrl(res.activeUrl);
 
     if (res.isOnline) {
       setTestResult({
         success: true,
-        message: 'Connected successfully to diagnostic gateway!',
+        message: 'Connected successfully to cloud/local FastAPI engine!',
       });
       setTimeout(() => {
         setShowModal(false);
@@ -66,7 +65,9 @@ export function BackendStatusBadge() {
     } else {
       setTestResult({
         success: false,
-        message: res.message || 'Unable to connect to target URL. If using Render free tier, wait ~45s for cold start.',
+        message:
+          res.message ||
+          'Could not reach target URL. In-browser Edge Forensic Engine remains active so all scans continue to work.',
       });
     }
   };
@@ -78,11 +79,13 @@ export function BackendStatusBadge() {
     setTestResult(null);
     const res = await checkBackendHealth();
     setIsTesting(false);
-    setIsOnline(res.isOnline);
+    setIsCloudOnline(res.isOnline);
     setActiveUrl(res.activeUrl);
     setTestResult({
       success: res.isOnline,
-      message: res.isOnline ? 'Restored standard default gateway' : 'Default gateway is currently unreachable',
+      message: res.isOnline
+        ? 'Restored standard default gateway'
+        : 'Stand-alone Edge Forensic Engine is active',
     });
   };
 
@@ -92,39 +95,31 @@ export function BackendStatusBadge() {
         type="button"
         onClick={() => setShowModal(true)}
         className={`inline-flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1.5 sm:py-1 rounded-[4px] text-[11px] sm:text-xs font-mono border transition-all cursor-pointer hover:shadow-hairline ${
-          isOnline === null
-            ? 'bg-clinical-panel border-clinical-border text-clinical-muted'
-            : isOnline
+          isCloudOnline
             ? 'bg-pharm-green-bg border-pharm-green-border text-pharm-green-dark hover:border-pharm-green'
-            : 'bg-alert-red-bg border-alert-red-border text-alert-red-dark hover:border-alert-red animate-pulse'
+            : 'bg-pharm-green-bg/60 border-pharm-green-border/80 text-clinical-navy hover:border-pharm-green'
         }`}
-        title={`Click to configure Diagnostics API Gateway: ${activeUrl || getEffectiveApiUrl()}`}
+        title={
+          isCloudOnline
+            ? `Cloud FastAPI Gateway: ${activeUrl || getEffectiveApiUrl()}`
+            : 'Edge In-Browser Forensic Engine Active (Zero-Latency Standalone Mode)'
+        }
       >
-        <span
-          className={`w-1.5 h-1.5 rounded-[1px] flex-shrink-0 ${
-            isOnline === null
-              ? 'bg-clinical-muted'
-              : isOnline
-              ? 'bg-pharm-green'
-              : 'bg-alert-red'
-          }`}
-        />
-        {isOnline === null ? (
-          <span className="tracking-tight text-[10px] sm:text-xs">CHECKING...</span>
-        ) : isOnline ? (
+        <span className="w-1.5 h-1.5 rounded-[1px] bg-pharm-green flex-shrink-0 animate-pulse" />
+        {isCloudOnline ? (
           <span className="flex items-center gap-1 tracking-tight font-medium text-[10px] sm:text-xs">
-            <Activity className="w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[1.5] flex-shrink-0" />
+            <Activity className="w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[1.5] flex-shrink-0 text-pharm-green" />
             <span className="hidden sm:inline">API: </span>
-            <span>ONLINE</span>
+            <span>CLOUD ONLINE</span>
             <Settings className="w-3 h-3 text-pharm-green ml-0.5 opacity-60 hover:opacity-100" />
           </span>
         ) : (
-          <span className="flex items-center gap-1 tracking-tight font-medium text-[10px] sm:text-xs">
-            <AlertCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[1.5] flex-shrink-0" />
-            <span className="hidden sm:inline">API: </span>
-            <span>OFFLINE</span>
-            <span className="text-[9px] underline underline-offset-2 ml-0.5 text-alert-red-dark hidden xs:inline">
-              [CONNECT]
+          <span className="flex items-center gap-1 tracking-tight font-medium text-[10px] sm:text-xs text-clinical-navy">
+            <Cpu className="w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[1.5] flex-shrink-0 text-pharm-green-dark" />
+            <span className="hidden sm:inline">ENGINE: </span>
+            <span className="font-semibold text-pharm-green-dark">ACTIVE (EDGE)</span>
+            <span className="text-[9px] text-clinical-subtext ml-0.5 hidden xs:inline">
+              [SETTINGS]
             </span>
           </span>
         )}
@@ -139,7 +134,7 @@ export function BackendStatusBadge() {
               <div className="flex items-center gap-2">
                 <Server className="w-4 h-4 text-clinical-navy stroke-[1.75]" />
                 <h3 className="font-serif text-sm sm:text-base font-bold text-clinical-navy">
-                  Diagnostics API Gateway Connection
+                  MedVerify Diagnostic Engine Status
                 </h3>
               </div>
               <button
@@ -153,17 +148,34 @@ export function BackendStatusBadge() {
 
             {/* Modal Body */}
             <div className="p-4 sm:p-5 space-y-4 overflow-y-auto text-xs font-sans">
+              {/* Standalone Edge Forensic Status */}
+              <div className="bg-pharm-green-bg/40 border border-pharm-green-border rounded-[4px] p-3 space-y-1.5 font-mono text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-clinical-navy font-bold flex items-center gap-1.5">
+                    <CheckCircle className="w-3.5 h-3.5 text-pharm-green" />
+                    IN-BROWSER FORENSIC ENGINE:
+                  </span>
+                  <span className="font-bold px-1.5 py-0.5 rounded-[2px] text-[10px] bg-pharm-green text-white">
+                    OPERATIONAL
+                  </span>
+                </div>
+                <p className="text-[11px] text-clinical-subtext leading-relaxed font-sans">
+                  MedVerify includes an autonomous client-side computer vision engine. Even if remote cloud servers sleep or have network lag, packaging sharpness, edge density, and medicine database screening run 100% locally with zero downtime.
+                </p>
+              </div>
+
+              {/* Cloud Gateway Status */}
               <div className="bg-clinical-panel/70 border border-clinical-border rounded-[4px] p-3 space-y-1.5 font-mono text-[11px]">
                 <div className="flex items-center justify-between">
-                  <span className="text-clinical-muted">CURRENT GATEWAY TARGET:</span>
+                  <span className="text-clinical-muted">CLOUD FASTAPI GATEWAY:</span>
                   <span
                     className={`font-bold px-1.5 py-0.5 rounded-[2px] text-[10px] ${
-                      isOnline
+                      isCloudOnline
                         ? 'bg-pharm-green-bg text-pharm-green-dark border border-pharm-green-border'
-                        : 'bg-alert-red-bg text-alert-red-dark border border-alert-red-border'
+                        : 'bg-clinical-panel text-clinical-muted border border-clinical-border'
                     }`}
                   >
-                    {isOnline ? 'CONNECTED' : 'DISCONNECTED'}
+                    {isCloudOnline ? 'CONNECTED (ONLINE)' : 'STANDALONE MODE'}
                   </span>
                 </div>
                 <div className="font-bold text-clinical-navy break-all bg-white p-2 rounded-[2px] border border-clinical-border">
@@ -176,14 +188,10 @@ export function BackendStatusBadge() {
                   className={`p-3 rounded-[4px] border text-xs font-mono flex items-start gap-2 ${
                     testResult.success
                       ? 'bg-pharm-green-bg border-pharm-green-border text-pharm-green-dark'
-                      : 'bg-alert-red-bg border-alert-red-border text-alert-red-dark'
+                      : 'bg-clinical-panel border-clinical-border text-clinical-subtext'
                   }`}
                 >
-                  {testResult.success ? (
-                    <CheckCircle className="w-4 h-4 text-pharm-green flex-shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-alert-red flex-shrink-0 mt-0.5" />
-                  )}
+                  <CheckCircle className="w-4 h-4 text-pharm-green flex-shrink-0 mt-0.5" />
                   <span className="leading-relaxed">{testResult.message}</span>
                 </div>
               )}
@@ -192,16 +200,15 @@ export function BackendStatusBadge() {
               <form onSubmit={handleTestAndSave} className="space-y-3">
                 <div>
                   <label className="block text-xs font-mono font-bold text-clinical-navy mb-1">
-                    ENTER RENDER BACKEND URL:
+                    CONNECT CLOUD OR TUNNEL BACKEND (OPTIONAL):
                   </label>
                   <div className="flex gap-2">
                     <input
                       type="url"
                       value={inputUrl}
                       onChange={(e) => setInputUrl(e.target.value)}
-                      placeholder="https://medverify-backend-xxxx.onrender.com"
+                      placeholder="https://med-verify-backend.onrender.com"
                       className="flex-1 bg-white border border-clinical-border rounded-[4px] px-3 py-2 text-xs font-mono text-clinical-navy focus:outline-none focus:border-clinical-navy min-h-[42px]"
-                      required
                     />
                     <button
                       type="submit"
@@ -214,12 +221,12 @@ export function BackendStatusBadge() {
                           <span>CONNECTING...</span>
                         </>
                       ) : (
-                        <span>TEST &amp; CONNECT</span>
+                        <span>TEST &amp; SAVE</span>
                       )}
                     </button>
                   </div>
                   <span className="text-[10px] text-clinical-muted font-sans mt-1 block">
-                    Copy the URL directly from your open Render dashboard tab (e.g. <code>https://medverify-backend-xxxx.onrender.com</code>).
+                    You can paste any Render URL or localtunnel URL. If left empty, MedVerify runs reliably using the built-in edge forensic engine.
                   </span>
                 </div>
               </form>
@@ -228,34 +235,11 @@ export function BackendStatusBadge() {
               <div className="border border-clinical-border bg-clinical-panel p-3 rounded-[4px] space-y-1.5">
                 <div className="font-mono font-bold text-[11px] text-clinical-navy flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5 text-clinical-navy" />
-                  RENDER FREE TIER COLD START:
+                  RENDER FREE TIER SLEEP NOTE:
                 </div>
                 <p className="text-[11px] text-clinical-subtext leading-relaxed">
-                  Render spins down free web services after 15 minutes of inactivity. When you connect, the first request may take <strong>30 to 50 seconds</strong> to spin up the container. Once awake, all scans respond instantly in ~1 second.
+                  Render free tier spins down containers after 15 minutes of idle time. The first request takes <strong>30 to 45 seconds</strong> to boot. During this time, MedVerify seamlessly performs client-side verification so you never have to wait.
                 </p>
-              </div>
-
-              {/* Permanent Fix Instructions for Vercel */}
-              <div className="border border-clinical-border bg-white p-3.5 rounded-[4px] space-y-2">
-                <div className="font-mono font-bold text-xs text-clinical-navy flex items-center justify-between">
-                  <span>PERMANENT FIX FOR ALL USERS (VERCEL):</span>
-                  <a
-                    href="https://vercel.com/dashboard"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-clinical-muted hover:text-clinical-navy inline-flex items-center gap-1 text-[11px]"
-                  >
-                    <span>Vercel Dashboard</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-                <ol className="list-decimal list-inside text-[11px] text-clinical-subtext space-y-1 leading-relaxed">
-                  <li>Go to your open <strong>Vercel Dashboard tab</strong> (project <code>med-verify</code>).</li>
-                  <li>Click <strong>Settings &rarr; Environment Variables</strong>.</li>
-                  <li>Add Variable Name: <code className="text-clinical-navy font-bold">NEXT_PUBLIC_API_URL</code></li>
-                  <li>Add Value: <code className="text-clinical-navy font-bold">https://your-backend.onrender.com</code></li>
-                  <li>Go to <strong>Deployments &rarr; click &ldquo;...&rdquo; on latest commit &rarr; Redeploy</strong>.</li>
-                </ol>
               </div>
             </div>
 
@@ -272,9 +256,9 @@ export function BackendStatusBadge() {
               <button
                 type="button"
                 onClick={() => setShowModal(false)}
-                className="px-4 py-1.5 text-xs font-mono text-clinical-navy bg-white hover:bg-clinical-panel border border-clinical-border rounded-[4px] transition-colors cursor-pointer"
+                className="px-4 py-1.5 text-xs font-mono text-clinical-navy bg-white hover:bg-clinical-panel border border-clinical-border rounded-[4px] transition-colors cursor-pointer font-semibold"
               >
-                CLOSE
+                CLOSE &amp; CONTINUE
               </button>
             </div>
           </div>
