@@ -239,71 +239,19 @@ def perform_ocr(image: np.ndarray) -> Dict[str, Any]:
 
 def extract_fallback_text_patterns(image: np.ndarray) -> str:
     """
-    Extracts high-probability textual blocks when external tesseract binary is pending.
-    Parses visual patterns and known pharmaceutical typographic regions.
+    Fallback text extractor when external OCR is unavailable or finds no text.
+    Strictly avoids fabricating genuine regulatory credentials for unverified images.
     """
-    # Look for textual regions via morphological gradient
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 3))
     morph = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, kernel)
     _, thresh = cv2.threshold(morph, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
-    # Check if there are significant horizontal text lines
     line_density = np.mean(thresh) / 255.0
     if line_density < 0.01:
         return ""
 
-    # Default simulated read for synthetic/demo cases if tesseract is missing
-    # Allows zero-crash testing before user runs `brew install tesseract`
-    h, w = image.shape[:2]
-    # Check image brightness & dimensions to identify demo samples
-    mean_val = np.mean(image)
-    if mean_val > 150:
-        # Check primary header color band
-        header_sample = image[30:100, 50:400]
-        mean_bgr = np.mean(header_sample, axis=(0, 1)) if header_sample.size > 0 else [0, 0, 0]
-        
-        # Color signatures of test suite packaging
-        if mean_bgr[1] > 100 and mean_bgr[0] < 50:  # Green -> Dolo 650
-            return (
-                "Rx DOLO-650 Paracetamol Tablets IP 650 mg\n"
-                "SCHEDULE H PRESCRIPTION DRUG - CAUTION\n"
-                "MANUFACTURED BY: Micro Labs Limited, Bengaluru\n"
-                "BATCH LOT NO: DL-650-9941B\n"
-                "EXPIRY DATE: 10/2028 | MFG: 02/2026 | MRP: Rs. 34.50\n"
-                "Mfg. Lic. No.: KTK/25/441/1998\n"
-                "DOSAGE: As directed by physician."
-            )
-        elif mean_bgr[0] > 120 and mean_bgr[2] < 50:  # Blue -> Crocin
-            return (
-                "Rx CROCIN ADVANCE Paracetamol 500 mg Fast Relief\n"
-                "SCHEDULE H PRESCRIPTION DRUG\n"
-                "MANUFACTURED BY: GlaxoSmithKline Consumer Healthcare\n"
-                "BATCH LOT NO: CR-ADV-4418A\n"
-                "EXPIRY DATE: 12/2028 | MFG: 01/2026 | MRP: Rs. 42.00\n"
-                "Mfg. Lic. No.: G/28/1109-A\n"
-                "GSK Optizorb Technology"
-            )
-        elif mean_bgr[0] > 100 and mean_bgr[2] > 100:  # Magenta/Wine -> Combiflam / Tretiva
-            if mean_bgr[2] > 130:
-                return (
-                    "Rx COMBIFLAM Ibuprofen 400 mg & Paracetamol 325 mg\n"
-                    "SCHEDULE H PRESCRIPTION DRUG\n"
-                    "MANUFACTURED BY: Sanofi India Limited, Mumbai\n"
-                    "BATCH LOT NO: CBF-IND-7734K\n"
-                    "EXPIRY DATE: 08/2028 | MFG: 03/2026 | MRP: Rs. 51.20\n"
-                    "Mfg. Lic. No.: MH/102/DRUG/2004"
-                )
-            else:
-                return (
-                    "Rx TRETIVA-20 Isotretinoin Soft Gelatin Capsules USP 20 mg\n"
-                    "SCHEDULE H PRESCRIPTION DRUG - CAUTION\n"
-                    "MANUFACTURED BY: Sun Pharmaceutical Industries Ltd, Halol\n"
-                    "BATCH LOT NO: TRT-20-8819X\n"
-                    "EXPIRY DATE: 05/2028 | MFG: 02/2026 | MRP: Rs. 285.00\n"
-                    "Mfg. Lic. No.: G/25/1982"
-                )
-    return "Pharmaceutical Packaging Specimen // Optical scan completed."
+    return ""
 
 
 # =============================================================================
