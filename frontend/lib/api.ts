@@ -317,7 +317,8 @@ export async function checkBackendHealth(targetBase?: string): Promise<{
     const clean = targetBase.trim().replace(/\/+$/, '');
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      // Render free tier requires up to 45-50s to wake up from inactivity
+      const timeout = setTimeout(() => controller.abort(), 45000);
       const res = await fetch(`${clean}/health`, {
         method: 'GET',
         cache: 'no-store',
