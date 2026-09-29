@@ -1,0 +1,67 @@
+{
+  "brands": [
+    {
+      "id": "dolo650",
+      "name": "Dolo 650",
+      "fullName": "Dolo 650 (Paracetamol Tablets IP 650mg)",
+      "manufacturer": "Micro Labs Limited",
+      "reference_image": "dolo650/genuine.png",
+      "lot_prefix": "DL-650",
+      "color_theme": "#15803D"
+    },
+    {
+      "id": "crocin",
+      "name": "Crocin Advance",
+      "fullName": "Crocin Advance (Paracetamol 500mg Fast Relief)",
+      "manufacturer": "GlaxoSmithKline (GSK)",
+      "reference_image": "crocin/genuine.png",
+      "lot_prefix": "CR-ADV",
+      "color_theme": "#0047AB"
+    },
+    {
+      "id": "combiflam",
+      "name": "Combiflam",
+      "fullName": "Combiflam (Ibuprofen 400mg & Paracetamol 325mg)",
+      "manufacturer": "Sanofi India Limited",
+      "reference_image": "combiflam/genuine.png",
+      "lot_prefix": "CBF-IND",
+      "color_theme": "#9F1239"
+    },
+    {
+      "id": "tretiva",
+      "name": "Tretiva 20",
+      "fullName": "Tretiva 20 (Intas Pharmaceuticals Ltd)",
+      "manufacturer": "Intas Pharmaceuticals Ltd",
+      "reference_image": "tretiva/genuine.png",
+      "lot_prefix": "S25",
+      "color_theme": "#8C1B20"
+    },
+    {
+      "id": "tetriva20",
+      "name": "Tretiva 20",
+      "fullName": "Tretiva 20 (Intas Pharmaceuticals Ltd)",
+      "manufacturer": "Intas Pharmaceuticals Ltd",
+      "reference_image": "tretiva/genuine.png",
+      "lot_prefix": "S25",
+      "color_theme": "#8C1B20"
+    },
+    {
+      "id": "azithromycin",
+      "name": "Azithral 250",
+      "fullName": "Azithral 250 (Azithromycin Tablets IP 250mg)",
+      "manufacturer": "Alembic Pharmaceuticals Ltd",
+      "reference_image": "azithromycin/genuine.png",
+      "lot_prefix": "AZT-250",
+      "color_theme": "#0D9488"
+    },
+    {
+      "id": "amoxicillin",
+      "name": "Augmentin 625",
+      "fullName": "Augmentin 625 (Amoxicillin & Clavulanate IP 625mg)",
+      "manufacturer": "GlaxoSmithKline Pharmaceuticals Ltd",
+      "reference_image": "amoxicillin/genuine.png",
+      "lot_prefix": "AGM-625",
+      "color_theme": "#EA580C"
+    }
+  ]
+}

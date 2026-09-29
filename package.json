@@ -1,0 +1,12 @@
+{
+  "name": "medverify-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MedVerify: Counterfeit medicine packaging screening application",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix frontend",
+    "lint": "npm run lint --prefix frontend"
+  }
+}
