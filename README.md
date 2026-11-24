@@ -5,24 +5,12 @@
 
 [![Live App](https://img.shields.io/badge/Live%20Platform-Vercel%20Edge-000?style=for-the-badge&logo=vercel)](https://med-verify-gamma.vercel.app)
 [![Version](https://img.shields.io/badge/Version-2.4.0%20Production-0D9488?style=for-the-badge)](https://med-verify-gamma.vercel.app)
-[![Documentation](https://img.shields.io/badge/Report-PDF%20Dossier-DC2626?style=for-the-badge&logo=adobeacrobatreader)](./MedVerify_Project_Report.pdf)
-[![Presentation](https://img.shields.io/badge/Deck-16%3A9%20PPTX-D97706?style=for-the-badge&logo=microsoftpowerpoint)](./MedVerify_Presentation.pptx)
 
 ---
 
 ## 🌐 Live Platform Access
 - **Production URL:** [https://med-verify-gamma.vercel.app](https://med-verify-gamma.vercel.app)
 - **Zero-Latency In-App Engine:** Runs directly on any mobile or desktop browser with zero external server dependencies.
-
----
-
-## 📑 Project Deliverables
-
-| Deliverable | Description | Format | Direct Link |
-| :--- | :--- | :--- | :--- |
-| **Comprehensive Technical Report** | 5-page clinical and mathematical audit dossier covering algorithms, WHO crisis statistics, and benchmarks. | Print-Ready PDF | [MedVerify_Project_Report.pdf](./MedVerify_Project_Report.pdf) |
-| **Executive Presentation Deck** | 12 widescreen (16:9) slides designed for stakeholder, investor, or academic jury evaluations. | PowerPoint (.pptx) | [MedVerify_Presentation.pptx](./MedVerify_Presentation.pptx) |
-| **Live Web Application** | Production deployment with instant packaging screening, camera ROI focus, and multimodal AI. | Next.js 16 Edge | [med-verify-gamma.vercel.app](https://med-verify-gamma.vercel.app) |
 
 ---
 
