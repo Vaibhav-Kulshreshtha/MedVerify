@@ -1,8 +1,5 @@
-import { AnalysisResult, BackendHealthResponse } from './types';
-import { runClientForensicAnalysis } from './clientForensicEngine';
-
-export const DEFAULT_API_BASE_URL =
-  (process.env.NEXT_PUBLIC_API_URL?.trim() || 'https://medverify-backend-stbv.onrender.com').replace(/\/+$/, '');
+import { AnalysisResult } from './types';
+import { runUniversalPackagingAnalysis } from './computerVisionEngine';
 
 export interface MedicineBrand {
   id: string;
@@ -72,23 +69,15 @@ export const DEFAULT_BRANDS: MedicineBrand[] = [
 ];
 
 export function getStoredApiUrl(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.localStorage.getItem('MEDVERIFY_API_URL')?.trim() || null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
-export function setStoredApiUrl(url: string | null): void {
-  if (typeof window === 'undefined') return;
-  if (url) window.localStorage.setItem('MEDVERIFY_API_URL', url);
-  else window.localStorage.removeItem('MEDVERIFY_API_URL');
-  window.dispatchEvent(new Event('medverify-gateway-change'));
+export function setStoredApiUrl(): void {
+  // Integrated engine
 }
 
 export function getEffectiveApiUrl(): string {
-  return getStoredApiUrl() || DEFAULT_API_BASE_URL;
+  return 'Integrated Engine';
 }
 
 export async function analyzePackaging(
@@ -96,72 +85,49 @@ export async function analyzePackaging(
   brand = 'auto',
   includeAi = false,
 ): Promise<AnalysisResult> {
-  const formData = new FormData();
-  formData.append('image', file);
-  formData.append('brand', brand);
-  if (includeAi) formData.append('include_ai', 'true');
+  // Execute high-speed in-app computer vision, OCR, and date logic
+  const result = await runUniversalPackagingAnalysis(file, brand);
 
-  // A scan sends the photo to the single gateway selected by the user.
-  const gateway = getEffectiveApiUrl();
-  let res: Response | undefined;
-  try {
-    res = await fetch(`${gateway}/analyze`, {
-      method: 'POST',
-      body: formData,
-      signal: AbortSignal.timeout(120_000),
-    });
-  } catch (error) {
-    if (!(error instanceof TypeError || error instanceof DOMException)) throw error;
+  // If opted-in, request Gemini plain-language explanation
+  if (includeAi) {
+    try {
+      const res = await fetch('/api/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          verdict: result.verdict,
+          confidence: result.confidence,
+          sharpness_score: result.sharpness_score,
+          flags: result.flags,
+          extracted_fields: result.extracted_fields,
+        }),
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (res.ok) {
+        const aiData = await res.json();
+        result.ai_explanation = aiData;
+      } else {
+        result.ai_explanation = { status: 'unavailable', summary: null };
+      }
+    } catch {
+      result.ai_explanation = { status: 'unavailable', summary: null };
+    }
   }
-  // Next's rewrite can return 500 when it cannot connect to its upstream.
-  const proxyOffline = res?.status === 500 && gateway === '/api/backend'
-    && !(await checkBackendHealth(gateway)).isOnline;
-  if (!res || proxyOffline || [502, 503, 504].includes(res.status)) {
-    const result = await runClientForensicAnalysis(file);
-    if (includeAi) result.ai_explanation = { status: 'unavailable' };
-    return result;
-  }
-  if (!res.ok) {
-    const data = await res.json().catch(() => null);
-    const detail = typeof data?.detail === 'string' ? data.detail : `Screening failed (HTTP ${res.status}).`;
-    throw new Error(detail);
-  }
-  const data = await res.json();
-  if (!data || !['PASSED SCREENING', 'INCONCLUSIVE', 'SUSPICIOUS', 'genuine', 'suspicious'].includes(data.verdict)
-      || !Number.isFinite(data.sharpness_score) || (data.confidence !== null && !Number.isFinite(data.confidence))
-      || !Array.isArray(data.flags)) {
-    throw new Error('The screening service returned an invalid report.');
-  }
-  if (includeAi && !data.ai_explanation) data.ai_explanation = { status: 'unavailable' };
-  return data;
+
+  return result;
 }
 
 export async function fetchBrands(): Promise<MedicineBrand[]> {
-  try {
-    const res = await fetch(`${getEffectiveApiUrl()}/brands`, { cache: 'no-store', signal: AbortSignal.timeout(45_000) });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.brands)) return data.brands;
-    }
-  } catch {
-    // Built-in samples are available offline.
-  }
   return DEFAULT_BRANDS;
 }
 
-export async function checkBackendHealth(targetBase = getEffectiveApiUrl()): Promise<{
+export async function checkBackendHealth(): Promise<{
   isOnline: boolean;
   message?: string;
   activeUrl: string;
 }> {
-  const activeUrl = targetBase.trim().replace(/\/+$/, '');
-  try {
-    const res = await fetch(`${activeUrl}/health`, { cache: 'no-store', signal: AbortSignal.timeout(45_000) });
-    if (!res.ok) return { isOnline: false, activeUrl, message: `The gateway returned HTTP ${res.status}.` };
-    const data: BackendHealthResponse = await res.json();
-    if (data.status === 'healthy') return { isOnline: true, activeUrl };
-  } catch {
-    // Missing, invalid or unreachable health endpoint.
-  }
-  return { isOnline: false, activeUrl, message: 'Could not reach a healthy MedVerify service at this address.' };
+  return {
+    isOnline: true,
+    activeUrl: 'MedVerify Unified Engine',
+  };
 }

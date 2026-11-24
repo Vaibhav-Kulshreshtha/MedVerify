@@ -16,4 +16,5 @@ backend/.env
 
 # OS
 .DS_Store
+*.pdf
 

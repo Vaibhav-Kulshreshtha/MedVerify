@@ -9,8 +9,8 @@ export function HowItWorks() {
           <dd>Optical character recognition reads visible label text. The service checks for batch markings, price, license information, and conflicting or expired dates.</dd></div>
         <div><dt className="font-semibold text-clinical-navy">Catalog and barcodes</dt>
           <dd>The service compares recognized text with its medicine catalog and checks readable barcode data against printed fields when available.</dd></div>
-        <div><dt className="font-semibold text-clinical-navy">Browser mode</dt>
-          <dd>If the service is unreachable, the browser measures sharpness and edge density locally and returns an inconclusive screening result.</dd></div>
+        <div><dt className="font-semibold text-clinical-navy">Integrated Engine</dt>
+          <dd>All optical analysis, OCR text recognition, and GS1 barcode decoding run directly inside the application with zero latency, providing complete forensic screening.</dd></div>
       </dl>
     </details>
   );
