@@ -30,16 +30,7 @@
     {
       "id": "tretiva",
       "name": "Tretiva 20",
-      "fullName": "Tretiva 20 (Intas Pharmaceuticals Ltd)",
-      "manufacturer": "Intas Pharmaceuticals Ltd",
-      "reference_image": "tretiva/genuine.png",
-      "lot_prefix": "S25",
-      "color_theme": "#8C1B20"
-    },
-    {
-      "id": "tetriva20",
-      "name": "Tretiva 20",
-      "fullName": "Tretiva 20 (Intas Pharmaceuticals Ltd)",
+      "fullName": "Tretiva 20 (Isotretinoin Soft Gelatin Capsules USP 20mg)",
       "manufacturer": "Intas Pharmaceuticals Ltd",
       "reference_image": "tretiva/genuine.png",
       "lot_prefix": "S25",

@@ -31,9 +31,17 @@ export function BackendStatusBadge() {
       timer = setTimeout(refresh, 20_000);
     }
     void refresh();
+    const onGatewayChange = () => {
+      clearTimeout(timer);
+      void refresh();
+    };
+    window.addEventListener('medverify-gateway-change', onGatewayChange);
+    window.addEventListener('storage', onGatewayChange);
     return () => {
       stopped = true;
       clearTimeout(timer);
+      window.removeEventListener('medverify-gateway-change', onGatewayChange);
+      window.removeEventListener('storage', onGatewayChange);
     };
   }, []);
 
@@ -82,6 +90,9 @@ export function BackendStatusBadge() {
       <dialog
         ref={dialog}
         aria-labelledby="gateway-title"
+        onClick={(e) => {
+          if (e.target === dialog.current) dialog.current?.close();
+        }}
         className="max-w-[calc(100%_-_2rem)] w-[30rem] rounded border border-clinical-border bg-clinical-surface p-5 text-clinical-navy shadow-xl backdrop:bg-black/40"
       >
         <div className="flex items-center justify-between gap-3">

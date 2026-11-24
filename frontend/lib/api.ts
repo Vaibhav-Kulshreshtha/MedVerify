@@ -128,7 +128,7 @@ export async function analyzePackaging(
   }
   const data = await res.json();
   if (!data || !['PASSED SCREENING', 'INCONCLUSIVE', 'SUSPICIOUS', 'genuine', 'suspicious'].includes(data.verdict)
-      || !Number.isFinite(data.sharpness_score) || !Number.isFinite(data.confidence)
+      || !Number.isFinite(data.sharpness_score) || (data.confidence !== null && !Number.isFinite(data.confidence))
       || !Array.isArray(data.flags)) {
     throw new Error('The screening service returned an invalid report.');
   }

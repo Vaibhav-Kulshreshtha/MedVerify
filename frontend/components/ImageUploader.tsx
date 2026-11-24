@@ -149,15 +149,16 @@ export function ImageUploader({
     const revision = ++selectionRevision.current;
     setError(null);
     setLoadingDemo(true);
-    // The Tretiva alias uses the same packaged sample.
-    const sampleBrand = brandId === 'auto' ? 'dolo650' : brandId === 'tetriva20' ? 'tretiva' : brandId;
+    const sampleBrand = brandId === 'auto' ? 'dolo650' : brandId;
     const filename = `${sampleBrand}_${type}.png`;
     try {
       const res = await fetch(`/demo_samples/${encodeURIComponent(filename)}`);
       if (!res.ok) throw new Error('Sample unavailable');
       const blob = await res.blob();
       if (selectionRevision.current !== revision) return;
-      setSelectedBrand(brandId === 'auto' ? sampleBrand : brandId);
+      if (brandId !== 'auto') {
+        setSelectedBrand(sampleBrand);
+      }
       handleFile(new File([blob], filename, { type: 'image/png' }));
     } catch {
       if (selectionRevision.current === revision) {

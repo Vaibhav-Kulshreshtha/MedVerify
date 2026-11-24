@@ -5,7 +5,7 @@ import { ImageUploader } from '@/components/ImageUploader';
 import { AnalysisResultView } from '@/components/AnalysisResultView';
 import { HowItWorks } from '@/components/HowItWorks';
 import { AnalysisResult } from '@/lib/types';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, X } from 'lucide-react';
 
 export default function Home() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
@@ -52,6 +52,15 @@ export default function Home() {
             </span>
             <span className="font-sans text-xs">{error}</span>
           </div>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-alert-red hover:text-alert-red-dark p-0.5 rounded cursor-pointer transition-colors"
+            title="Dismiss notice"
+            aria-label="Dismiss notice"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
