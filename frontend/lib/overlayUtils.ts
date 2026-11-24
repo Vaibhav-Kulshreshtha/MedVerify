@@ -1,171 +1,20 @@
 import { AnalysisFlag, AnalysisResult, BoundingBoxOverlay, BreakdownCheck } from './types';
 
-/**
- * Computes mock bounding-box overlays over the uploaded image
- * using the diagnostic flags returned from the forensic API.
- */
-export function generateFlagOverlays(
-  flags: AnalysisFlag[],
-  verdict: string
-): BoundingBoxOverlay[] {
-  const normVerdict = verdict.toUpperCase();
-  if (normVerdict === 'PASSED SCREENING' || normVerdict === 'GENUINE' || flags.length === 0) {
-    return [];
-  }
-
-  return flags.map((flag, index) => {
-    const issueLower = flag.issue.toLowerCase();
-
-    // Check 1: Sharpness / Blur / Typography
-    if (
-      issueLower.includes('sharpness') ||
-      issueLower.includes('blur') ||
-      issueLower.includes('laplacian') ||
-      issueLower.includes('focus')
-    ) {
-      return {
-        id: `overlay-${index}`,
-        x: 6,
-        y: 12,
-        width: 58,
-        height: 24,
-        label: `FLAG ${String(index + 1).padStart(2, '0')}: PRINT SHARPNESS / BLUR`,
+/** Only draw regions with coordinates supplied by the analysis. */
+export function generateFlagOverlays(flags: AnalysisFlag[], existingOverlays?: BoundingBoxOverlay[]): BoundingBoxOverlay[] {
+  const overlays = [...(existingOverlays || [])];
+  flags.forEach((flag, index) => {
+    if (flag.bbox && !overlays.some((overlay) => overlay.issue === flag.issue)) {
+      overlays.push({
+        ...flag.bbox,
+        id: `flag-${index}`,
+        label: `Flag ${index + 1}`,
         severity: flag.severity,
         issue: flag.issue,
-      };
+      });
     }
-
-    // Check 2: Edge quality / Canny / Contours / Dither
-    if (
-      issueLower.includes('edge') ||
-      issueLower.includes('canny') ||
-      issueLower.includes('contour') ||
-      issueLower.includes('dither') ||
-      issueLower.includes('fragment')
-    ) {
-      return {
-        id: `overlay-${index}`,
-        x: 6,
-        y: 58,
-        width: 55,
-        height: 25,
-        label: `FLAG ${String(index + 1).padStart(2, '0')}: CANNY EDGE COHERENCE`,
-        severity: flag.severity,
-        issue: flag.issue,
-      };
-    }
-
-    // Check 3: Color gamut / HSV / Histogram
-    if (
-      issueLower.includes('color') ||
-      issueLower.includes('gamut') ||
-      issueLower.includes('hsv') ||
-      issueLower.includes('histogram') ||
-      issueLower.includes('foil') ||
-      issueLower.includes('chromatic')
-    ) {
-      return {
-        id: `overlay-${index}`,
-        x: 62,
-        y: 14,
-        width: 32,
-        height: 38,
-        label: `FLAG ${String(index + 1).padStart(2, '0')}: COLOR GAMUT SHIFT`,
-        severity: flag.severity,
-        issue: flag.issue,
-      };
-    }
-
-    // Check 4: Date logic / Expiry / Timeline
-    if (
-      issueLower.includes('date') ||
-      issueLower.includes('expiry') ||
-      issueLower.includes('expired') ||
-      issueLower.includes('mfg') ||
-      issueLower.includes('timeline')
-    ) {
-      return {
-        id: `overlay-${index}`,
-        x: 48,
-        y: 50,
-        width: 46,
-        height: 22,
-        label: `FLAG ${String(index + 1).padStart(2, '0')}: DATE LOGIC / EXPIRY`,
-        severity: flag.severity,
-        issue: flag.issue,
-      };
-    }
-
-    // Check 5: Database / Typo / Formulation / Composition
-    if (
-      issueLower.includes('typo') ||
-      issueLower.includes('composition') ||
-      issueLower.includes('manufacturer') ||
-      issueLower.includes('mimic') ||
-      issueLower.includes('contradiction')
-    ) {
-      return {
-        id: `overlay-${index}`,
-        x: 8,
-        y: 36,
-        width: 60,
-        height: 24,
-        label: `FLAG ${String(index + 1).padStart(2, '0')}: FORMULATION / TYPO ANOMALY`,
-        severity: flag.severity,
-        issue: flag.issue,
-      };
-    }
-
-    // Check 6: Mandatory fields (Batch, MRP, License)
-    if (
-      issueLower.includes('batch') ||
-      issueLower.includes('mrp') ||
-      issueLower.includes('license')
-    ) {
-      return {
-        id: `overlay-${index}`,
-        x: 48,
-        y: 72,
-        width: 46,
-        height: 22,
-        label: `FLAG ${String(index + 1).padStart(2, '0')}: REGULATORY FIELD ABSENT`,
-        severity: flag.severity,
-        issue: flag.issue,
-      };
-    }
-
-    // Check 7: Barcode / QR / DataMatrix
-    if (
-      issueLower.includes('barcode') ||
-      issueLower.includes('datamatrix') ||
-      issueLower.includes('qr')
-    ) {
-      return {
-        id: `overlay-${index}`,
-        x: 64,
-        y: 55,
-        width: 30,
-        height: 35,
-        label: `FLAG ${String(index + 1).padStart(2, '0')}: OPTICAL CODE DEFECT`,
-        severity: flag.severity,
-        issue: flag.issue,
-      };
-    }
-
-    // Default fallback coordinates
-    const row = index % 3;
-    const col = Math.floor(index / 3);
-    return {
-      id: `overlay-${index}`,
-      x: 10 + col * 45,
-      y: 18 + row * 26,
-      width: 42,
-      height: 22,
-      label: `FLAG ${String(index + 1).padStart(2, '0')}: ${flag.severity.toUpperCase()} ANOMALY`,
-      severity: flag.severity,
-      issue: flag.issue,
-    };
   });
+  return overlays;
 }
 
 /**
@@ -200,9 +49,9 @@ export function getBreakdownChecks(result: AnalysisResult): BreakdownCheck[] {
       isOutlier: isSharpnessOutlier,
       outlierThreshold: sharpnessOutlierThreshold,
       notes: isSharpnessOutlier
-        ? 'CRITICAL OUTLIER (< 28.0 pts): Severe print blur detected; fails 40% benchmark threshold.'
+        ? 'Sharpness falls below the severe-outlier threshold.'
         : sharpnessScore >= 70.0
-        ? 'Micro-text edges match pharmaceutical industrial offset lithography standard.'
+        ? 'Sharpness meets the screening threshold.'
         : 'Low Laplacian spatial variance; blurred or low-resolution print detected.',
     },
     {
@@ -216,12 +65,19 @@ export function getBreakdownChecks(result: AnalysisResult): BreakdownCheck[] {
       isOutlier: isEdgeOutlier,
       outlierThreshold: edgeOutlierThreshold,
       notes: isEdgeOutlier
-        ? 'CRITICAL OUTLIER (< 28.0 pts): Extreme stroke fragmentation & dithering; fails 40% benchmark threshold.'
+        ? 'Edge quality falls below the severe-outlier threshold.'
         : edgeScore >= 70.0
         ? 'Canny edge density & connected stroke continuity confirmed.'
-        : 'Fragmented edge contours detected; potential inkjet dither spray.',
+        : 'Edge quality falls below the screening threshold.',
     },
   ];
+
+  if (result.rule_triggered === 'browser_optical_only') {
+    checks[0].notes = 'Local estimate of focus from pixel gradients.';
+    checks[1].tolerance = '≥ 70.0 pts (edge density)';
+    checks[1].notes = 'Local estimate of edge density from pixel gradients.';
+    return checks;
+  }
 
   // Check 3: Optional Brand Reference Color Match
   if (result.reference_used && result.color_match_score !== undefined && result.color_match_score !== null) {
@@ -253,7 +109,7 @@ export function getBreakdownChecks(result: AnalysisResult): BreakdownCheck[] {
       tolerance: 'OPTIONAL (Reference-Free Mode)',
       passed: true,
       isSkipped: true,
-      notes: 'SKIPPED: Universal reference-free mode active. Weights dynamically re-normalized across remaining 5 checks.',
+      notes: 'No reference image was compared.',
     });
   }
 
@@ -275,7 +131,7 @@ export function getBreakdownChecks(result: AnalysisResult): BreakdownCheck[] {
     passed: ocrFieldsScore >= 75.0,
     notes: fieldsFound.length > 0
       ? `Extracted [${fieldsFound.join(' | ')}] via optical text character recognition.`
-      : 'Incomplete regulatory markings: missing required batch number or manufacturing license.',
+      : 'The requested label fields could not be read from the image.',
   });
 
   // Check 5: Chronological Date Logic
@@ -290,28 +146,30 @@ export function getBreakdownChecks(result: AnalysisResult): BreakdownCheck[] {
     benchmark: 90.0,
     tolerance: 'MFG < EXP & Active Shelf-Life',
     passed: dateLogicScore >= 90.0,
+    isSkipped: !dateLog?.has_mfg_date && !dateLog?.has_exp_date,
     notes: dateLog?.timeline_error
       ? dateLog.timeline_error
       : dateLog?.is_expired
       ? `EXPIRED SPECIMEN: Expiry date (${exp}) has elapsed.`
-      : `Valid shelf-life sequence (MFG: ${mfg} → EXP: ${exp}).`,
+      : `Manufacturing date: ${mfg}. Expiry date: ${exp}.`,
   });
 
   // Check 6: Pharmacopeial Database Cross-Check
   const db = result.database_match_details;
   checks.push({
-    name: 'Pharmacopeial Database Cross-Check',
+    name: 'Medicine catalog comparison',
     code: 'CHK-DB-06',
     score: dbMatchScore,
     maxScore: 100,
     benchmark: 70.0,
-    tolerance: '≥ 70.0% Indian Medicine Registry',
+    tolerance: '≥ 70.0 pts (catalog match)',
+    isSkipped: !db?.matched_name,
     passed: dbMatchScore >= 70.0,
     notes: db?.is_typo_suspect
       ? 'SUSPECT BRAND TYPO: Near-miss spelling of registered pharmaceutical trademark detected.'
       : db?.matched_name
       ? `Correlated with registry master: ${db.matched_name} (${db.expected_composition || 'standard formulation'}).`
-      : 'Unindexed generic formulation; passed general typographic audit.',
+      : 'No medicine catalog entry was matched.',
   });
 
   // Check 7: Barcode & Optical Code Decoding
@@ -323,13 +181,15 @@ export function getBreakdownChecks(result: AnalysisResult): BreakdownCheck[] {
     maxScore: 100,
     benchmark: 60.0,
     tolerance: 'Optical 1D/2D Machine Decodable',
-    passed: barcodeScore >= 60.0,
+    passed: Boolean(bar?.is_decoded),
+    isSkipped: !bar?.visually_present && !bar?.is_decoded,
     notes: bar?.is_decoded && bar.primary_code
       ? `Decoded ${bar.primary_code.type}: Payload [${bar.primary_code.data.substring(0, 24)}...].`
       : bar?.visually_present
       ? 'WARNING: Barcode pattern physically present on carton but failed optical decode.'
-      : 'Optical barcode not present on visible carton panel (typical on primary blister front).',
+      : 'No barcode was detected on the visible panel.',
   });
 
+  // The separate GS1 panel displays the categorical result returned by the service.
   return checks;
 }

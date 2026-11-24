@@ -1,8 +1,8 @@
-import { AnalysisResult, BackendHealthResponse, AddReferenceResponse } from './types';
+import { AnalysisResult, BackendHealthResponse } from './types';
 import { runClientForensicAnalysis } from './clientForensicEngine';
 
 export const DEFAULT_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+  (process.env.NEXT_PUBLIC_API_URL?.trim() || '/api/backend').replace(/\/+$/, '');
 
 export interface MedicineBrand {
   id: string;
@@ -46,9 +46,9 @@ export const DEFAULT_BRANDS: MedicineBrand[] = [
     id: 'tretiva',
     name: 'Tretiva 20',
     fullName: 'Tretiva 20 (Isotretinoin Soft Gelatin Capsules USP 20mg)',
-    manufacturer: 'Sun Pharmaceutical Industries Ltd',
+    manufacturer: 'Intas Pharmaceuticals Ltd',
     reference_image: 'tretiva/genuine.png',
-    lot_prefix: 'TRT-20',
+    lot_prefix: 'S25',
     color_theme: '#8C1B20',
   },
   {
@@ -71,285 +71,97 @@ export const DEFAULT_BRANDS: MedicineBrand[] = [
   },
 ];
 
-// Active resolved endpoint candidate (cached once verified)
-let resolvedApiBase: string | null = null;
-
-export const API_BASE_URL = DEFAULT_API_BASE_URL;
-
-/**
- * Retrieves user-configured backend URL from browser localStorage if available.
- */
 export function getStoredApiUrl(): string | null {
   if (typeof window === 'undefined') return null;
   try {
-    return localStorage.getItem('MEDVERIFY_API_URL')?.trim() || null;
+    return window.localStorage.getItem('MEDVERIFY_API_URL')?.trim() || null;
   } catch {
     return null;
   }
 }
 
-/**
- * Stores custom backend URL to browser localStorage and clears active cache.
- */
 export function setStoredApiUrl(url: string | null): void {
   if (typeof window === 'undefined') return;
-  try {
-    if (url && url.trim()) {
-      const clean = url.trim().replace(/\/+$/, '');
-      localStorage.setItem('MEDVERIFY_API_URL', clean);
-      resolvedApiBase = clean;
-    } else {
-      localStorage.removeItem('MEDVERIFY_API_URL');
-      resolvedApiBase = null;
-    }
-  } catch {}
-}
-
-/**
- * Returns prioritized API endpoint candidates to ensure connectivity across
- * production (Vercel + Render), custom URL, Safari, Chrome, localhost, and Next.js proxy.
- */
-export function getCandidateUrls(): string[] {
-  const candidates: string[] = [];
-
-  // 1. Cached working endpoint
-  if (resolvedApiBase && !candidates.includes(resolvedApiBase)) {
-    candidates.push(resolvedApiBase);
-  }
-
-  // 2. Custom override from localStorage
-  const stored = getStoredApiUrl();
-  if (stored && !candidates.includes(stored)) {
-    candidates.push(stored);
-  }
-
-  // 3. NEXT_PUBLIC_API_URL environment variable
-  const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
-  if (envUrl && !candidates.includes(envUrl)) {
-    candidates.push(envUrl);
-  }
-
-  // 4. Same-origin Next.js reverse proxy rewrite
-  const proxyUrl = '/api/backend';
-  if (!candidates.includes(proxyUrl)) {
-    candidates.push(proxyUrl);
-  }
-
-  // 5. Localhost direct (ONLY on local machine, NOT when deployed to Vercel HTTPS)
-  const isBrowser = typeof window !== 'undefined';
-  const isLocalhost = !isBrowser || (
-    window.location.hostname === 'localhost' ||
-    window.location.hostname === '127.0.0.1' ||
-    window.location.hostname === '0.0.0.0'
-  );
-
-  if (isLocalhost) {
-    const ipv4Direct = 'http://127.0.0.1:8000';
-    if (!candidates.includes(ipv4Direct)) {
-      candidates.push(ipv4Direct);
-    }
-
-    const localhostDirect = 'http://localhost:8000';
-    if (!candidates.includes(localhostDirect)) {
-      candidates.push(localhostDirect);
-    }
-  }
-
-  return candidates;
+  if (url) window.localStorage.setItem('MEDVERIFY_API_URL', url);
+  else window.localStorage.removeItem('MEDVERIFY_API_URL');
+  window.dispatchEvent(new Event('medverify-gateway-change'));
 }
 
 export function getEffectiveApiUrl(): string {
-  return resolvedApiBase || getStoredApiUrl() || process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE_URL;
+  return getStoredApiUrl() || DEFAULT_API_BASE_URL;
 }
 
-/**
- * Executes a fetch across candidate URLs with automatic fallback.
- */
-async function fetchWithFallback(
-  path: string,
-  options?: RequestInit
-): Promise<Response> {
-  const candidates = getCandidateUrls();
-  let lastError: Error | null = null;
-
-  for (const base of candidates) {
-    const cleanBase = base.replace(/\/+$/, '');
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    const targetUrl = `${cleanBase}${cleanPath}`;
-
-    try {
-      const res = await fetch(targetUrl, options);
-      if (res.ok || res.status < 500) {
-        resolvedApiBase = base;
-        return res;
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        lastError = err;
-      }
-    }
-  }
-
-  throw lastError || new Error(`Failed to communicate with diagnostic engine at ${getEffectiveApiUrl()}`);
-}
-
-/**
- * Uploads an image file to the backend /analyze endpoint.
- */
 export async function analyzePackaging(
   file: File,
-  brand?: string,
-  mockVerdict?: string
+  brand = 'auto',
+  includeAi = false,
 ): Promise<AnalysisResult> {
   const formData = new FormData();
   formData.append('image', file);
+  formData.append('brand', brand);
+  if (includeAi) formData.append('include_ai', 'true');
 
-  if (brand && brand !== 'auto') {
-    formData.append('brand', brand);
-  } else {
-    formData.append('brand', 'auto');
-  }
-
-  const queryParams = mockVerdict ? `?mock_verdict=${encodeURIComponent(mockVerdict)}` : '';
-  const path = `/analyze${queryParams}`;
-
+  // A scan sends the photo to the single gateway selected by the user.
+  const gateway = getEffectiveApiUrl();
+  let res: Response | undefined;
   try {
-    const res = await fetchWithFallback(path, {
+    res = await fetch(`${gateway}/analyze`, {
       method: 'POST',
       body: formData,
+      signal: AbortSignal.timeout(120_000),
     });
-
-    if (!res.ok) {
-      let errorMessage = `Diagnostic engine error (${res.status})`;
-      try {
-        const errJson = await res.json();
-        if (errJson.detail) {
-          errorMessage =
-            typeof errJson.detail === 'string'
-              ? errJson.detail
-              : JSON.stringify(errJson.detail);
-        }
-      } catch {}
-      throw new Error(errorMessage);
-    }
-
-    const data: AnalysisResult = await res.json();
-    return data;
-  } catch (error: unknown) {
-    console.warn(
-      '[MedVerify] Remote diagnostic engine unreachable, seamlessly activating in-browser edge forensic engine...',
-      error
-    );
-    // Engage standalone in-browser forensic fallback so the user/judges demo never fails
-    return await runClientForensicAnalysis(file, brand);
+  } catch (error) {
+    if (!(error instanceof TypeError || error instanceof DOMException)) throw error;
   }
-}
-
-/**
- * Registers an authentic packaging specimen as a brand master reference.
- */
-export async function addReferenceStandard(
-  file: File,
-  brandId: string,
-  brandName?: string,
-  manufacturer?: string
-): Promise<AddReferenceResponse> {
-  const formData = new FormData();
-  formData.append('image', file);
-  formData.append('brand_id', brandId);
-  if (brandName) formData.append('brand_name', brandName);
-  if (manufacturer) formData.append('manufacturer', manufacturer);
-
-  const res = await fetchWithFallback('/add-reference', {
-    method: 'POST',
-    body: formData,
-  });
-
+  // Next's rewrite can return 500 when it cannot connect to its upstream.
+  const proxyOffline = res?.status === 500 && gateway === '/api/backend'
+    && !(await checkBackendHealth(gateway)).isOnline;
+  if (!res || proxyOffline || [502, 503, 504].includes(res.status)) {
+    const result = await runClientForensicAnalysis(file);
+    if (includeAi) result.ai_explanation = { status: 'unavailable' };
+    return result;
+  }
   if (!res.ok) {
-    let errorMessage = `Failed to register reference (${res.status})`;
-    try {
-      const err = await res.json();
-      if (err.detail) errorMessage = err.detail;
-    } catch {}
-    throw new Error(errorMessage);
+    const data = await res.json().catch(() => null);
+    const detail = typeof data?.detail === 'string' ? data.detail : `Screening failed (HTTP ${res.status}).`;
+    throw new Error(detail);
   }
-
-  return await res.json();
+  const data = await res.json();
+  if (!data || !['PASSED SCREENING', 'INCONCLUSIVE', 'SUSPICIOUS', 'genuine', 'suspicious'].includes(data.verdict)
+      || !Number.isFinite(data.sharpness_score) || !Number.isFinite(data.confidence)
+      || !Array.isArray(data.flags)) {
+    throw new Error('The screening service returned an invalid report.');
+  }
+  if (includeAi && !data.ai_explanation) data.ai_explanation = { status: 'unavailable' };
+  return data;
 }
 
-/**
- * Fetches registered medicine brands from the backend.
- */
 export async function fetchBrands(): Promise<MedicineBrand[]> {
   try {
-    const res = await fetchWithFallback('/brands', {
-      method: 'GET',
-      cache: 'no-store',
-    });
+    const res = await fetch(`${getEffectiveApiUrl()}/brands`, { cache: 'no-store', signal: AbortSignal.timeout(45_000) });
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data.brands) && data.brands.length > 0) {
-        return data.brands;
-      }
+      if (Array.isArray(data.brands)) return data.brands;
     }
   } catch {
-    // Return fallback defaults
+    // Built-in samples are available offline.
   }
   return DEFAULT_BRANDS;
 }
 
-/**
- * Checks backend health status across configured or specific target URL.
- */
-export async function checkBackendHealth(targetBase?: string): Promise<{
+export async function checkBackendHealth(targetBase = getEffectiveApiUrl()): Promise<{
   isOnline: boolean;
   message?: string;
   activeUrl: string;
 }> {
-  if (targetBase && targetBase.trim()) {
-    const clean = targetBase.trim().replace(/\/+$/, '');
-    try {
-      const controller = new AbortController();
-      // Render free tier requires up to 45-50s to wake up from inactivity
-      const timeout = setTimeout(() => controller.abort(), 45000);
-      const res = await fetch(`${clean}/health`, {
-        method: 'GET',
-        cache: 'no-store',
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-
-      if (res.ok) {
-        resolvedApiBase = clean;
-        setStoredApiUrl(clean);
-        return { isOnline: true, activeUrl: clean };
-      }
-      return { isOnline: false, message: `HTTP status ${res.status}`, activeUrl: clean };
-    } catch (err: unknown) {
-      return {
-        isOnline: false,
-        message: err instanceof Error ? err.message : 'Connection timeout or network failure',
-        activeUrl: clean,
-      };
-    }
-  }
-
+  const activeUrl = targetBase.trim().replace(/\/+$/, '');
   try {
-    const res = await fetchWithFallback('/health', {
-      method: 'GET',
-      cache: 'no-store',
-    });
-
-    if (res.ok) {
-      const data: BackendHealthResponse = await res.json();
-      return { isOnline: data.status === 'healthy', activeUrl: getEffectiveApiUrl() };
-    }
-    return { isOnline: false, message: `Status: ${res.status}`, activeUrl: getEffectiveApiUrl() };
+    const res = await fetch(`${activeUrl}/health`, { cache: 'no-store', signal: AbortSignal.timeout(45_000) });
+    if (!res.ok) return { isOnline: false, activeUrl, message: `The gateway returned HTTP ${res.status}.` };
+    const data: BackendHealthResponse = await res.json();
+    if (data.status === 'healthy') return { isOnline: true, activeUrl };
   } catch {
-    return {
-      isOnline: false,
-      message: `Backend unreachable at ${getEffectiveApiUrl()}`,
-      activeUrl: getEffectiveApiUrl(),
-    };
+    // Missing, invalid or unreachable health endpoint.
   }
+  return { isOnline: false, activeUrl, message: 'Could not reach a healthy MedVerify service at this address.' };
 }

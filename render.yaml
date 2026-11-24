@@ -6,4 +6,9 @@ services:
     plan: free
     region: oregon
     healthCheckPath: /health
-    autoDeploy: true
+    autoDeploy: false
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: CORS_ORIGINS
+        value: https://med-verify-gamma.vercel.app,http://localhost:3000,http://127.0.0.1:3000

@@ -1,0 +1,14 @@
+**
+!backend/
+backend/*
+!backend/requirements.txt
+!backend/app/
+!backend/app/**
+!backend/data/
+!backend/data/**
+!backend/reference_images/
+!backend/reference_images/**
+**/.env
+**/.env.*
+**/__pycache__
+**/*.pyc

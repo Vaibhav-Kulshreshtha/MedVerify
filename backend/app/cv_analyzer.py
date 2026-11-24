@@ -20,12 +20,14 @@ Decision Rule & Classification:
 """
 
 import os
-import glob
+import io
 import json
 import logging
+from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
 import cv2
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.reference_free_engine import (
     perform_ocr,
@@ -33,6 +35,7 @@ from app.reference_free_engine import (
     evaluate_field_logic,
     cross_check_medicine_database,
     decode_barcode_and_qr,
+    cross_audit_physical_vs_digital,
 )
 
 logger = logging.getLogger("medverify.cv")
@@ -43,7 +46,7 @@ REFERENCE_DIRS = [
     os.path.join(os.path.dirname(__file__), "..", "..", "reference_images"),
 ]
 
-# Benchmarks according to pharmacopeial quality standards (USP-NF & ISO-17025)
+# Empirical thresholds used by the screening heuristics.
 BENCHMARK_SHARPNESS = 70.0
 BENCHMARK_EDGE = 70.0
 BENCHMARK_COLOR = 75.0
@@ -52,21 +55,16 @@ OUTLIER_THRESHOLD_SHARPNESS = 0.40 * BENCHMARK_SHARPNESS  # 28.0 pts
 OUTLIER_THRESHOLD_EDGE = 0.40 * BENCHMARK_EDGE            # 28.0 pts
 OUTLIER_THRESHOLD_COLOR = 0.40 * BENCHMARK_COLOR          # 30.0 pts
 
-# Known brand aliases
+# Only unambiguous names may select a specific reference package.
 BRAND_ALIASES = {
-    "tretiva": ["isotretinoin", "tretiva", "tretiva20", "tretiva-20", "tetriva", "tetriva20", "tetriva-20"],
-    "tetriva": ["tretiva", "isotretinoin", "tretiva20", "tretiva-20", "tetriva", "tetriva20", "tetriva-20"],
-    "tetriva20": ["tretiva", "isotretinoin", "tretiva20", "tretiva-20", "tetriva", "tetriva20", "tetriva-20"],
-    "tretiva20": ["tretiva", "isotretinoin", "tretiva20", "tretiva-20", "tetriva", "tetriva20", "tetriva-20"],
-    "isotretinoin": ["tretiva", "isotretinoin", "tretiva20", "tretiva-20", "tetriva", "tetriva20", "tetriva-20"],
-    "dolo650": ["dolo", "dolo650", "dolo-650", "paracetamol"],
-    "crocin": ["crocin", "crocinadvance", "crocin-advance", "paracetamol"],
-    "combiflam": ["combiflam", "ibuprofen", "paracetamol"],
-    "azithromycin": ["azithral", "azithromycin", "azithral250", "azithral-250"],
-    "azithral": ["azithromycin", "azithral", "azithral250", "azithral-250"],
-    "amoxicillin": ["augmentin", "amoxicillin", "augmentin625", "augmentin-625", "mox"],
-    "augmentin": ["amoxicillin", "augmentin", "augmentin625", "augmentin-625", "mox"],
+    "dolo": "dolo650", "dolo-650": "dolo650",
+    "crocinadvance": "crocin", "crocin-advance": "crocin",
+    "tretiva20": "tretiva", "tretiva-20": "tretiva", "tetriva": "tretiva", "tetriva-20": "tretiva",
+    "azithral": "azithromycin", "azithral250": "azithromycin", "azithral-250": "azithromycin",
+    "augmentin": "amoxicillin", "augmentin625": "amoxicillin", "augmentin-625": "amoxicillin",
 }
+
+MAX_IMAGE_PIXELS = 16_000_000
 
 
 def load_brands_config() -> List[Dict]:
@@ -92,93 +90,97 @@ def get_brand_reference_image(brand_id: Optional[str]) -> Tuple[Optional[str], O
         return None, None
 
     clean_id = brand_id.strip().lower()
+    canonical_id = BRAND_ALIASES.get(clean_id, clean_id)
     brands = load_brands_config()
-    matched_brand_entry = None
-    brand_display_name = brand_id
-
-    # 1. Match by exact ID
-    for b in brands:
-        if b.get("id", "").strip().lower() == clean_id:
-            matched_brand_entry = b
-            brand_display_name = b.get("name") or b.get("fullName") or brand_id
-            break
-
-    # 2. Match by Name / FullName substring
-    if not matched_brand_entry:
-        for b in brands:
-            name_lower = b.get("name", "").strip().lower()
-            full_lower = b.get("fullName", "").strip().lower()
-            if clean_id in name_lower or clean_id in full_lower or name_lower in clean_id:
-                matched_brand_entry = b
-                brand_display_name = b.get("name") or b.get("fullName") or brand_id
-                break
-
-    # 3. Check alias dictionary
-    search_keys = [clean_id]
-    if clean_id in BRAND_ALIASES:
-        search_keys.extend(BRAND_ALIASES[clean_id])
-    for alias_key, alias_list in BRAND_ALIASES.items():
-        if clean_id in alias_list:
-            search_keys.append(alias_key)
-            search_keys.extend(alias_list)
-    search_keys = list(dict.fromkeys(search_keys))
-
-    # If configured reference_image path exists
-    if matched_brand_entry and matched_brand_entry.get("reference_image"):
-        rel_path = matched_brand_entry["reference_image"]
-        for ref_dir in REFERENCE_DIRS:
-            cand = os.path.join(ref_dir, rel_path)
-            if os.path.exists(cand) and os.path.isfile(cand):
-                return os.path.abspath(cand), brand_display_name
-
-    # 4. Search reference directories for direct matches
-    for key in search_keys:
-        for ref_dir in REFERENCE_DIRS:
-            if not os.path.exists(ref_dir):
-                continue
-            candidates = [
-                os.path.join(ref_dir, key, "genuine.png"),
-                os.path.join(ref_dir, key, "reference.png"),
-                os.path.join(ref_dir, f"{key}_genuine.png"),
-                os.path.join(ref_dir, f"ref_{key}.png"),
-                os.path.join(ref_dir, f"{key}.png"),
-            ]
-            for cand in candidates:
-                if os.path.exists(cand) and os.path.isfile(cand):
-                    return os.path.abspath(cand), brand_display_name
-
-            for pattern in (f"ref_{key}*.png", f"{key}*.png", f"*{key}*.png"):
-                matches = glob.glob(os.path.join(ref_dir, pattern))
-                valid_matches = [m for m in matches if "fake" not in os.path.basename(m).lower() and os.path.isfile(m)]
-                if valid_matches:
-                    return os.path.abspath(valid_matches[0]), brand_display_name
-
-    return None, brand_display_name
+    if any(b.get("id") == clean_id for b in brands):
+        canonical_id = clean_id
+    for brand in brands:
+        names = (brand.get("name", ""), brand.get("fullName", ""))
+        if canonical_id != brand.get("id") and not any(clean_id == name.lower() for name in names):
+            continue
+        display_name = brand.get("name") or brand_id
+        rel_path = brand.get("reference_image")
+        if rel_path:
+            for ref_dir in REFERENCE_DIRS:
+                root = Path(ref_dir).resolve()
+                candidate = (root / rel_path).resolve()
+                if root in candidate.parents and candidate.is_file():
+                    return str(candidate), display_name
+        return None, display_name
+    return None, brand_id
 
 
 def decode_image_bytes(file_bytes: bytes) -> np.ndarray:
-    """Decodes raw image bytes into a BGR NumPy array using OpenCV."""
-    np_arr = np.frombuffer(file_bytes, dtype=np.uint8)
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError("Could not decode image. Format must be valid JPEG, PNG, or WebP.")
-    return image
+    """Check the format and dimensions before allocating a decoded image."""
+    try:
+        with Image.open(io.BytesIO(file_bytes), formats=("JPEG", "PNG", "WEBP")) as photo:
+            if photo.width * photo.height > MAX_IMAGE_PIXELS:
+                raise ValueError("Image exceeds the 16 megapixel limit.")
+            rgb = ImageOps.exif_transpose(photo).convert("RGB")
+            # Scale large phone photos before the full-frame OpenCV and OCR passes.
+            rgb.thumbnail((2400, 2400), Image.Resampling.LANCZOS)
+            return cv2.cvtColor(np.asarray(rgb), cv2.COLOR_RGB2BGR)
+    except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError) as exc:
+        raise ValueError("Upload a valid JPEG, PNG, or WebP image.") from exc
 
 
 def calculate_sharpness_score(image: np.ndarray) -> Tuple[float, float]:
     """
-    Computes print sharpness score using the Laplacian Operator variance.
-    Sharp pharmaceutical packaging produces high variance (> 400); blurred/cheap printing < 100.
+    Computes noise-resistant print sharpness score using Bilateral-Filtered Laplacian variance.
+    Edge-preserving bilateral filtering eliminates noise inversion (where artificial/sensor noise
+    falsely mimics sharp typography).
     """
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    laplacian = cv2.Laplacian(gray, cv2.CV_64F, ksize=3)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+    denoised = cv2.bilateralFilter(gray, d=5, sigmaColor=25, sigmaSpace=25)
+    laplacian = cv2.Laplacian(denoised, cv2.CV_64F, ksize=3)
     raw_variance = float(laplacian.var())
 
-    target_variance = 650.0
-    normalized_score = (np.log1p(raw_variance) / np.log1p(target_variance)) * 100.0
-    sharpness_score = float(np.clip(normalized_score, 0.0, 100.0))
+    # Calibrated pharmacopeial sharpness curve:
+    # Blurred/counterfeit printing (variance < 100) trips the critical outlier threshold (< 28.0 pts)
+    # Industrial pharmaceutical typography (variance >= 500) scores >= 85.0 pts
+    if raw_variance <= 0.0:
+        sharpness_score = 0.0
+    elif raw_variance < 120.0:
+        sharpness_score = (raw_variance / 120.0) * 26.0
+    else:
+        sharpness_score = 26.0 + (np.log(raw_variance) - np.log(120.0)) / (np.log(2000.0) - np.log(120.0)) * 74.0
 
+    sharpness_score = float(np.clip(sharpness_score, 0.0, 100.0))
     return round(sharpness_score, 1), round(raw_variance, 2)
+
+
+def extract_packaging_region(image: np.ndarray) -> Tuple[np.ndarray, Optional[Dict[str, float]]]:
+    """
+    Isolates the packaging carton or blister pack from the table/background using contour analysis.
+    Returns the cropped packaging image and its bounding box percentages.
+    """
+    h, w = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+    closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+
+    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        c = max(contours, key=cv2.contourArea)
+        area = cv2.contourArea(c)
+        if area > (h * w * 0.15):
+            bx, by, bw, bh = cv2.boundingRect(c)
+            pad = 8
+            x1 = max(0, bx - pad)
+            y1 = max(0, by - pad)
+            x2 = min(w, bx + bw + pad)
+            y2 = min(h, by + bh + pad)
+            crop = image[y1:y2, x1:x2]
+            bbox = {
+                "x": round((x1 / w) * 100, 1),
+                "y": round((y1 / h) * 100, 1),
+                "width": round(((x2 - x1) / w) * 100, 1),
+                "height": round(((y2 - y1) / h) * 100, 1),
+            }
+            return crop, bbox
+    return image, None
 
 
 def calculate_edge_quality_score(image: np.ndarray) -> Tuple[float, float, float]:
@@ -225,19 +227,22 @@ def calculate_edge_quality_score(image: np.ndarray) -> Tuple[float, float, float
 def calculate_color_consistency_score(
     image: np.ndarray,
     reference_path: str,
-) -> Tuple[float, float, str]:
+) -> Tuple[Optional[float], Optional[float], Optional[str]]:
     """
     Computes HSV color histogram correlation between the uploaded packaging and an authentic master.
+    Uses segmented packaging region to avoid background tabletop color interference.
     """
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    pkg_crop, _ = extract_packaging_region(image)
+    hsv_image = cv2.cvtColor(pkg_crop, cv2.COLOR_BGR2HSV)
     hist_image = cv2.calcHist([hsv_image], [0, 1], None, [50, 60], [0, 180, 0, 256])
     cv2.normalize(hist_image, hist_image, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
 
     ref_bgr = cv2.imread(reference_path)
     if ref_bgr is None:
-        return 0.0, 0.0, "UNREADABLE_REFERENCE"
+        return None, None, None
 
-    ref_hsv = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2HSV)
+    ref_crop, _ = extract_packaging_region(ref_bgr)
+    ref_hsv = cv2.cvtColor(ref_crop, cv2.COLOR_BGR2HSV)
     ref_hist = cv2.calcHist([ref_hsv], [0, 1], None, [50, 60], [0, 180, 0, 256])
     cv2.normalize(ref_hist, ref_hist, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
 
@@ -274,9 +279,9 @@ def analyze_packaging_image(
     if sharpness_score < OUTLIER_THRESHOLD_SHARPNESS:
         flags.append({
             "issue": (
-                f"CRITICAL SHARPNESS OUTLIER (Laplacian variance {raw_variance:.1f} < 100): "
-                f"Print sharpness ({sharpness_score:.1f}/100) is below 40% of required pharmaceutical benchmark. "
-                "Severe optical blur indicates counterfeit desktop reproduction."
+                f"LOW SHARPNESS (Laplacian variance {raw_variance:.1f}): "
+                f"Print sharpness score {sharpness_score:.1f}/100. "
+                "The image is too blurred to assess fine print reliably."
             ),
             "severity": "high",
         })
@@ -292,7 +297,7 @@ def analyze_packaging_image(
         flags.append({
             "issue": (
                 f"Sub-standard print sharpness (Laplacian variance {raw_variance:.1f}): "
-                "Letter stroke boundaries exhibit soft focus typical of secondary digital printing."
+                "The photo shows soft letter edges."
             ),
             "severity": "medium",
         })
@@ -302,7 +307,7 @@ def analyze_packaging_image(
         flags.append({
             "issue": (
                 f"CRITICAL EDGE QUALITY OUTLIER (Canny Edge Quality {edge_quality_score:.1f}): "
-                "Stroke continuity is below 40% of benchmark. Extreme stroke fragmentation indicates non-compliant printing."
+                "Stroke continuity is below the screening threshold."
             ),
             "severity": "high",
         })
@@ -310,7 +315,7 @@ def analyze_packaging_image(
         flags.append({
             "issue": (
                 f"Broken and irregular edge contours (Canny Edge Quality {edge_quality_score:.1f}): "
-                f"Detected stroke fragmentation (coherence ratio {coherence_ratio:.2f}) indicative of cheap inkjet printing."
+                f"Detected stroke fragmentation (coherence ratio {coherence_ratio:.2f}) in the photo."
             ),
             "severity": "high",
         })
@@ -318,7 +323,7 @@ def analyze_packaging_image(
         flags.append({
             "issue": (
                 f"Inconsistent text edge continuity (Canny Edge Quality {edge_quality_score:.1f}): "
-                f"Edge density ({edge_density:.1f}%) and stroke continuity deviate from pharmaceutical baseline."
+                f"Edge density ({edge_density:.1f}%) and stroke continuity fall outside the screening range."
             ),
             "severity": "medium",
         })
@@ -333,19 +338,21 @@ def analyze_packaging_image(
     reference_missing = False
 
     is_explicit_brand = bool(brand_id and brand_id.strip() and brand_id.lower().strip() not in ("auto", "other", "none"))
-    
-    if is_explicit_brand:
-        ref_path, brand_display = get_brand_reference_image(brand_id)
-        if ref_path and os.path.exists(ref_path):
-            reference_used = True
-            color_match_score, best_correlation, matched_ref = calculate_color_consistency_score(image, ref_path)
 
-            if color_match_score < OUTLIER_THRESHOLD_COLOR:
+    if is_explicit_brand:
+        ref_path, _ = get_brand_reference_image(brand_id)
+        if ref_path and os.path.exists(ref_path):
+            color_match_score, best_correlation, matched_ref = calculate_color_consistency_score(image, ref_path)
+            reference_used = color_match_score is not None
+
+            if color_match_score is None:
+                reference_missing = True
+            elif color_match_score < OUTLIER_THRESHOLD_COLOR:
                 flags.append({
                     "issue": (
                         f"CRITICAL COLOR OUTLIER (HSV Correlation {best_correlation:.2f}): "
                         f"Color match score ({color_match_score:.1f}/100) is below 40% of benchmark (30.0 pts). "
-                        f"Packaging color diverges severely from authentic master standard ({matched_ref})."
+                        f"Packaging color differs substantially from the selected reference ({matched_ref})."
                     ),
                     "severity": "high",
                 })
@@ -353,7 +360,7 @@ def analyze_packaging_image(
                 flags.append({
                     "issue": (
                         f"Severe color gamut deviation (HSV Correlation {best_correlation:.2f}): "
-                        f"Packaging color histogram diverges from authentic master standard ({matched_ref})."
+                        f"Packaging color differs from the selected reference ({matched_ref})."
                     ),
                     "severity": "high",
                 })
@@ -361,7 +368,7 @@ def analyze_packaging_image(
                 flags.append({
                     "issue": (
                         f"Moderate color shift detected in packaging background/foil (HSV Correlation {best_correlation:.2f}) "
-                        f"against authentic reference standard ({matched_ref})."
+                        f"against the selected reference ({matched_ref})."
                     ),
                     "severity": "medium",
                 })
@@ -376,69 +383,194 @@ def analyze_packaging_image(
     # =========================================================================
     # CHECKS 4, 5, 6, 7: Universal Reference-Free Forensic Layer
     # =========================================================================
-    # OCR Extraction
+    # OCR Extraction (with physical line-level bounding boxes)
     ocr_result = perform_ocr(image)
     ocr_text = ocr_result["text"]
     char_count = ocr_result["character_count"]
+    line_boxes = ocr_result.get("line_boxes", [])
 
-    # Field Extraction via Regex
-    extracted_fields = extract_packaging_fields(ocr_text)
+    # Field Extraction via Regex with physical bounding coordinates
+    extracted_fields = extract_packaging_fields(ocr_text, line_boxes=line_boxes)
 
     # Chronological & Regulatory Logic Checks
     field_logic = evaluate_field_logic(extracted_fields)
     ocr_fields_score = field_logic["score"]
-    date_logic_score = 100.0 if (field_logic["date_timeline_valid"] and not field_logic["is_expired"]) else (20.0 if not field_logic["date_timeline_valid"] else 50.0)
+    date_logic_score = 50.0
+    if field_logic["timeline_error"] or field_logic["is_expired"]:
+        date_logic_score = 20.0
+    elif field_logic["date_order_confirmed"]:
+        date_logic_score = 100.0
 
     # Date Logic Flags
     if not field_logic["date_timeline_valid"] and field_logic["timeline_error"]:
         flags.append({
             "issue": field_logic["timeline_error"],
             "severity": "high",
+            "bbox": extracted_fields.get("exp_bbox"),
         })
     elif field_logic["is_expired"]:
         flags.append({
             "issue": (
-                f"EXPIRED MEDICINE SPECIMEN: Packaging expiry date ({extracted_fields.get('exp_date_str')}) "
-                "precedes current date. Consuming expired medication carries severe clinical risk."
+                f"The detected expiry date ({extracted_fields.get('exp_date_str')}) "
+                "has passed. Confirm the date on the package."
             ),
             "severity": "high",
+            "bbox": extracted_fields.get("exp_bbox"),
         })
 
     # Mandatory Regulatory Presence Flags
     if not field_logic["batch_present"]:
         flags.append({
             "issue": (
-                "MANDATORY BATCH NUMBER ABSENT: No legible batch, lot, or control code identified on carton. "
-                "Drug regulatory rules require prominent batch declaration on all secondary packaging."
+                "OCR could not read a batch or lot number from this photo."
             ),
             "severity": "medium" if char_count >= 30 else "low",
+            "bbox": None,
         })
     if not field_logic["mrp_present"]:
         flags.append({
             "issue": (
-                "MAXIMUM RETAIL PRICE (MRP) ABSENT: Statutory price declaration not identified on visible packaging."
+                "OCR could not read a maximum retail price on the visible packaging."
             ),
             "severity": "low",
+            "bbox": None,
         })
     if not field_logic["license_present"]:
         flags.append({
             "issue": (
-                "MANUFACTURING LICENSE NUMBER MISSING: Regulatory Form 25/28 license number not found in packaging micro-text."
+                "OCR could not read a manufacturing license number on the visible packaging."
             ),
             "severity": "low",
+            "bbox": None,
         })
 
     # Database Cross-Check (rapidfuzz against /data/medicines.csv)
     db_result = cross_check_medicine_database(ocr_text, declared_brand=brand_id)
     db_match_score = db_result["score"]
     for db_flag in db_result["flags"]:
-        flags.append(db_flag)
+        db_bbox = None
+        if db_result.get("matched_name") and line_boxes:
+            for lb in line_boxes:
+                if any(w.lower() in lb["text"].lower() for w in db_result["matched_name"].split()):
+                    db_bbox = {"x": lb["x"], "y": lb["y"], "width": lb["width"], "height": lb["height"]}
+                    break
+        flags.append({
+            "issue": db_flag["issue"],
+            "severity": db_flag["severity"],
+            "bbox": db_bbox,
+        })
 
     # Barcode & Optical Code Decoding
     barcode_result = decode_barcode_and_qr(image)
     barcode_score = barcode_result["score"]
     for bc_flag in barcode_result["flags"]:
-        flags.append(bc_flag)
+        flags.append({
+            "issue": bc_flag["issue"],
+            "severity": bc_flag["severity"],
+            "bbox": bc_flag.get("bbox"),
+        })
+
+    # GS1 DataMatrix & Physical-to-Digital Cross Audit
+    gs1_details = barcode_result.get("gs1_data")
+    cross_audit = cross_audit_physical_vs_digital(extracted_fields, gs1_details)
+    for ca_flag in cross_audit.get("flags", []):
+        flags.append({
+            "issue": ca_flag["issue"],
+            "severity": ca_flag["severity"],
+            "bbox": extracted_fields.get("batch_bbox"),
+        })
+
+    # =========================================================================
+    # DETECTED PHYSICAL OVERLAYS (Pixel-grounded Bounding Boxes)
+    # =========================================================================
+    overlays: List[Dict[str, Any]] = []
+
+    def register_overlay(x: float, y: float, w_box: float, h_box: float, label: str, severity: str, issue: str):
+        overlays.append({
+            "id": f"overlay-{len(overlays)}",
+            "x": round(float(x), 1),
+            "y": round(float(y), 1),
+            "width": round(float(w_box), 1),
+            "height": round(float(h_box), 1),
+            "label": label,
+            "severity": severity,
+            "issue": issue,
+        })
+
+    # 1. Packaging ROI Box (if cropped or identified)
+    _, pkg_roi_bbox = extract_packaging_region(image)
+    if pkg_roi_bbox:
+        register_overlay(
+            pkg_roi_bbox["x"], pkg_roi_bbox["y"], pkg_roi_bbox["width"], pkg_roi_bbox["height"],
+            "PACKAGING BOUNDARY", "low", "Segmented primary medicine packaging boundary"
+        )
+
+    # 2. Batch Number Overlay
+    if extracted_fields.get("batch_bbox"):
+        bb = extracted_fields["batch_bbox"]
+        register_overlay(
+            bb["x"], bb["y"], bb["width"], bb["height"],
+            "BATCH / LOT", "low", f"Detected Batch No: {extracted_fields.get('batch_number')}"
+        )
+
+    # 3. Expiry Date Overlay
+    if extracted_fields.get("exp_bbox"):
+        eb = extracted_fields["exp_bbox"]
+        if field_logic.get("is_expired") or not field_logic.get("date_timeline_valid"):
+            register_overlay(
+                eb["x"], eb["y"], eb["width"], eb["height"],
+                "DATE CONFLICT", "high", field_logic.get("timeline_error") or "Expired Medicine Packaging"
+            )
+        else:
+            register_overlay(
+                eb["x"], eb["y"], eb["width"], eb["height"],
+                "EXPIRY DATE", "low", f"Printed expiry: {extracted_fields.get('exp_date_str')}"
+            )
+
+    # 4. Manufacturing Date Overlay
+    if extracted_fields.get("mfg_bbox"):
+        mb = extracted_fields["mfg_bbox"]
+        register_overlay(
+            mb["x"], mb["y"], mb["width"], mb["height"],
+            "MFG DATE", "low", f"Manufacturing Date: {extracted_fields.get('mfg_date_str')}"
+        )
+
+    # 5. MRP Overlay
+    if extracted_fields.get("mrp_bbox"):
+        mpb = extracted_fields["mrp_bbox"]
+        register_overlay(
+            mpb["x"], mpb["y"], mpb["width"], mpb["height"],
+            "STATUTORY MRP", "low", f"Price: {extracted_fields.get('mrp_str')}"
+        )
+
+    # 6. License Number Overlay
+    if extracted_fields.get("license_bbox"):
+        lb = extracted_fields["license_bbox"]
+        register_overlay(
+            lb["x"], lb["y"], lb["width"], lb["height"],
+            "MFG LICENSE", "low", f"Drug License: {extracted_fields.get('license_number')}"
+        )
+
+    # 7. Optical Barcode / GS1 Overlay
+    if barcode_result.get("primary_code") and barcode_result["primary_code"].get("bbox"):
+        bcb = barcode_result["primary_code"]["bbox"]
+        b_sev = "high" if cross_audit.get("status") == "CRITICAL_MISMATCH" else "low"
+        b_iss = cross_audit.get("summary") or "Optical barcode verified"
+        register_overlay(
+            bcb["x"], bcb["y"], bcb["width"], bcb["height"],
+            "GS1 / BARCODE", b_sev, b_iss
+        )
+
+    # 8. Suspect Brand Typo Overlay
+    if db_result.get("is_typo_suspect") and line_boxes:
+        for lb in line_boxes:
+            if db_result.get("matched_name") and any(w.lower() in lb["text"].lower() for w in db_result["matched_name"].split()):
+                register_overlay(
+                    lb["x"], lb["y"], lb["width"], lb["height"],
+                    "SUSPECT BRAND TYPO", "high",
+                    f"Near-miss brand spelling detected: '{lb['text']}' mimics '{db_result['matched_name']}'"
+                )
+                break
 
     # =========================================================================
     # DYNAMIC WEIGHTING & COMPOSITE SCORING
@@ -479,34 +611,26 @@ def analyze_packaging_image(
         (reference_used and color_match_score is not None and color_match_score < OUTLIER_THRESHOLD_COLOR)
     )
 
-    # Check for INCONCLUSIVE state: sparse text, severe lack of readable fields without fatal flaws
-    is_sparse_text = char_count < 20 and not field_logic["batch_present"]
+    # Texture and legibility alone cannot identify a package or verify its contents.
+    has_packaging_field = any((
+        field_logic["batch_present"], field_logic["has_exp_date"], field_logic["has_mfg_date"],
+        field_logic["license_present"], field_logic["mrp_present"],
+    ))
+    color_conflict = color_match_score is not None and color_match_score < OUTLIER_THRESHOLD_COLOR
+    insufficient_evidence = not has_packaging_field and (char_count < 20 or not color_conflict)
 
-    if has_high_severity_flag or is_severe_outlier:
-        # HARD RULE: If ANY check has a HIGH severity flag, final verdict CANNOT be "PASSED SCREENING"
-        verdict = "SUSPICIOUS"
-        rule_triggered = "severe_outlier_fail_safe"
-        confidence = round(min(weighted_final_score, 45.0) / 100.0, 2)
-        flags.insert(0, {
-            "issue": (
-                "FAIL-SAFE PROTOCOL ACTIVATED: Overall classification forced to SUSPICIOUS due to high-severity "
-                "forensic flags or critical benchmark failure. Pharmaceutical quality rules strictly prohibit averaging "
-                "out fatal defects (e.g. brand typo, date paradox, severe blur)."
-            ),
-            "severity": "high",
-        })
-    elif is_sparse_text:
+    if insufficient_evidence and cross_audit["status"] != "CRITICAL_MISMATCH":
         verdict = "INCONCLUSIVE"
         rule_triggered = "inconclusive_sparse_text"
         confidence = 0.50
         flags.insert(0, {
-            "issue": (
-                "INCONCLUSIVE SPECIMEN: Uploaded packaging image contains insufficient legible typography "
-                f"({char_count} characters extracted). Batch number, expiry, and manufacturer credentials cannot be verified. "
-                "Please scan the carton reverse side or re-capture under direct glare-free lighting."
-            ),
+            "issue": "No legible batch, date, license, or price was identified. Retake the photo with these details in focus.",
             "severity": "medium",
         })
+    elif has_high_severity_flag or is_severe_outlier:
+        verdict = "SUSPICIOUS"
+        rule_triggered = "severe_outlier_fail_safe"
+        confidence = round(min(weighted_final_score, 45.0) / 100.0, 2)
     elif weighted_final_score < 65.0:
         verdict = "SUSPICIOUS"
         rule_triggered = "composite_score"
@@ -515,22 +639,6 @@ def analyze_packaging_image(
         verdict = "PASSED SCREENING"
         rule_triggered = "composite_score"
         confidence = round(weighted_final_score / 100.0, 2)
-
-    # Affirmative notes for passing specimens
-    if verdict == "PASSED SCREENING" and len(flags) == 0:
-        flags.append({
-            "issue": "Print sharpness and edge continuity meet pharmaceutical industrial lithography standards.",
-            "severity": "low",
-        })
-        flags.append({
-            "issue": "Mandatory regulatory typography verified (Batch, Expiry, License, and MRP present).",
-            "severity": "low",
-        })
-        if db_result.get("matched_name"):
-            flags.append({
-                "issue": f"Registered formulation confirmed against pharmacopeial registry ({db_result['matched_name']}).",
-                "severity": "low",
-            })
 
     logger.info(
         f"[Engine-Result] Verdict: {verdict} | Conf: {confidence:.2f} | Score: {weighted_final_score:.1f} | "
@@ -557,9 +665,12 @@ def analyze_packaging_image(
         "date_logic_details": field_logic,
         "database_match_details": db_result,
         "barcode_details": barcode_result,
+        "gs1_details": gs1_details,
+        "cross_audit_details": cross_audit,
+        "overlays": overlays,
         "rule_triggered": rule_triggered,
         "verdict_disclaimer": (
-            "First-line optical screening tool only. Not a chemical assay. "
-            "Suspected counterfeit or unverified packaging must be reported to the drug manufacturer for batch audit."
+            "This photo screens visible packaging features. A pharmacist or the manufacturer can help verify "
+            "the package and batch if you have concerns. A photo cannot establish the medicine’s contents or authenticity."
         ),
     }

@@ -10,6 +10,12 @@ export type Severity = 'low' | 'medium' | 'high' | 'critical' | string;
 export interface AnalysisFlag {
   issue: string;
   severity: Severity;
+  bbox?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
 }
 
 export interface ExtractedFields {
@@ -19,6 +25,30 @@ export interface ExtractedFields {
   mrp_str?: string | null;
   mrp_value?: number | null;
   license_number?: string | null;
+  batch_bbox?: { x: number; y: number; width: number; height: number } | null;
+  mfg_bbox?: { x: number; y: number; width: number; height: number } | null;
+  exp_bbox?: { x: number; y: number; width: number; height: number } | null;
+  mrp_bbox?: { x: number; y: number; width: number; height: number } | null;
+  license_bbox?: { x: number; y: number; width: number; height: number } | null;
+}
+
+export interface GS1Details {
+  gtin?: string | null;
+  expiry_date?: string | null;
+  batch_number?: string | null;
+  serial_number?: string | null;
+  is_valid_gs1?: boolean;
+}
+
+export interface CrossAuditDetails {
+  status: 'VERIFIED_MATCH' | 'CRITICAL_MISMATCH' | 'PHYSICAL_ONLY' | 'PARTIAL_AUDIT' | string;
+  batch_match?: boolean | null;
+  expiry_match?: boolean | null;
+  digital_batch?: string | null;
+  digital_expiry?: string | null;
+  gtin?: string | null;
+  summary?: string;
+  flags?: AnalysisFlag[];
 }
 
 export interface DateLogicDetails {
@@ -58,8 +88,12 @@ export interface BarcodeDetails {
 }
 
 export interface AnalysisResult {
+  ai_explanation?: {
+    status: 'generated' | 'not_configured' | 'unavailable';
+    summary?: string | null;
+  } | null;
   verdict: Verdict;
-  confidence: number;
+  confidence: number | null;
   flags: AnalysisFlag[];
   sharpness_score: number;
   edge_quality_score?: number;
@@ -76,6 +110,9 @@ export interface AnalysisResult {
   date_logic_details?: DateLogicDetails;
   database_match_details?: DatabaseMatchDetails;
   barcode_details?: BarcodeDetails;
+  gs1_details?: GS1Details;
+  cross_audit_details?: CrossAuditDetails;
+  overlays?: BoundingBoxOverlay[];
   rule_triggered?: string;
   verdict_disclaimer?: string;
 }

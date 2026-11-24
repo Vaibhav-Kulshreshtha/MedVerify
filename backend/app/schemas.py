@@ -10,12 +10,32 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class BoundingBoxOverlay(BaseModel):
+    id: str = Field(..., description="Unique overlay identifier (e.g. 'overlay-0')")
+    x: float = Field(..., description="Top-left horizontal coordinate as percentage of image width (0-100)")
+    y: float = Field(..., description="Top-left vertical coordinate as percentage of image height (0-100)")
+    width: float = Field(..., description="Bounding box width as percentage of image width (0-100)")
+    height: float = Field(..., description="Bounding box height as percentage of image height (0-100)")
+    label: str = Field(..., description="Readable diagnostic flag category label")
+    severity: str = Field(..., description="Severity level: 'low', 'medium', 'high', or 'critical'")
+    issue: str = Field(..., description="Detailed explanation of the localized packaging defect")
+
+
 class FlagItem(BaseModel):
     issue: str = Field(..., description="Description of the detected issue, anomaly, or discrepancy")
     severity: str = Field(..., description="Severity level: 'low', 'medium', 'high', or 'critical'")
+    bbox: Optional[Dict[str, float]] = Field(None, description="Physical coordinates of localized defect: x, y, width, height")
+
+
+class GeminiExplanation(BaseModel):
+    status: Literal["generated", "not_configured", "unavailable"]
+    summary: Optional[str] = None
 
 
 class AnalyzeResponse(BaseModel):
+    ai_explanation: Optional[GeminiExplanation] = Field(
+        default=None, description="Optional plain-language interpretation of the screening metrics"
+    )
     verdict: Literal["PASSED SCREENING", "INCONCLUSIVE", "SUSPICIOUS"] = Field(
         ...,
         description="Forensic packaging classification: 'PASSED SCREENING', 'INCONCLUSIVE', or 'SUSPICIOUS'",
@@ -78,6 +98,15 @@ class AnalyzeResponse(BaseModel):
     )
     barcode_details: Optional[Dict[str, Any]] = Field(
         default_factory=dict, description="Barcode/QR optical decoding details"
+    )
+    gs1_details: Optional[Dict[str, Any]] = Field(
+        default_factory=dict, description="Parsed GS1 standard identifiers (GTIN, Batch, Expiry, Serial)"
+    )
+    cross_audit_details: Optional[Dict[str, Any]] = Field(
+        default_factory=dict, description="Physical-to-digital cross-verification (OCR batch vs Barcode batch)"
+    )
+    overlays: List[BoundingBoxOverlay] = Field(
+        default_factory=list, description="Localized physical defect bounding boxes detected on packaging specimen"
     )
     
     # Classification metadata & disclaimer

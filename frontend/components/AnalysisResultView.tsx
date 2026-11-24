@@ -13,12 +13,11 @@ import {
   FileSpreadsheet,
   AlertTriangle,
   Info,
-  BookmarkPlus,
   Check,
 } from 'lucide-react';
 import { AnalysisResult, Severity } from '@/lib/types';
 import { generateFlagOverlays, getBreakdownChecks } from '@/lib/overlayUtils';
-import { addReferenceStandard } from '@/lib/api';
+import { GeminiExplanation } from './GeminiExplanation';
 
 interface AnalysisResultViewProps {
   result: AnalysisResult;
@@ -35,73 +34,17 @@ export function AnalysisResultView({
   const [activeOverlayId, setActiveOverlayId] = useState<string | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
 
-  // "Save as Reference" state
-  const [showAddRefModal, setShowAddRefModal] = useState(false);
-  const [refBrandName, setRefBrandName] = useState(
-    result.database_match_details?.matched_name || ''
-  );
-  const [refBrandId, setRefBrandId] = useState(
-    (result.database_match_details?.matched_name || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || ''
-  );
-  const [refManufacturer, setRefManufacturer] = useState(
-    result.database_match_details?.expected_manufacturer || ''
-  );
-  const [isSavingRef, setIsSavingRef] = useState(false);
-  const [refSaveSuccess, setRefSaveSuccess] = useState<string | null>(null);
-  const [refSaveError, setRefSaveError] = useState<string | null>(null);
+  const [reportedAt] = useState(() => new Date().toLocaleString());
+  const browserOnly = result.rule_triggered === 'browser_optical_only';
 
   // Normalize verdict
   const normVerdict = (result.verdict || 'SUSPICIOUS').toUpperCase();
   const isPassed = normVerdict === 'PASSED SCREENING' || normVerdict === 'GENUINE';
   const isInconclusive = normVerdict === 'INCONCLUSIVE';
 
-  const confidencePercent = (result.confidence * 100).toFixed(1);
-  const confidenceValue = Math.min(100, Math.max(0, result.confidence * 100));
-
-  const overlays = generateFlagOverlays(result.flags, normVerdict);
+  const confidenceValue = result.confidence === null ? null : Math.min(100, Math.max(0, result.confidence * 100));
+  const overlays = generateFlagOverlays(result.flags, result.overlays);
   const breakdownChecks = getBreakdownChecks(result);
-
-  const handleSaveReference = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!refBrandId.trim()) {
-      setRefSaveError('Brand ID slug is required.');
-      return;
-    }
-    setIsSavingRef(true);
-    setRefSaveError(null);
-    setRefSaveSuccess(null);
-
-    try {
-      const blobRes = await fetch(previewUrl);
-      const blob = await blobRes.blob();
-      const file = new File([blob], `${refBrandId}_genuine.png`, {
-        type: blob.type || 'image/png',
-      });
-
-      const response = await addReferenceStandard(
-        file,
-        refBrandId.trim(),
-        refBrandName.trim(),
-        refManufacturer.trim()
-      );
-
-      setRefSaveSuccess(response.message);
-      setTimeout(() => {
-        setShowAddRefModal(false);
-      }, 2500);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setRefSaveError(err.message);
-      } else {
-        setRefSaveError('Failed to register reference standard.');
-      }
-    } finally {
-      setIsSavingRef(false);
-    }
-  };
 
   const getSeverityBadge = (severity: Severity) => {
     const s = severity.toLowerCase();
@@ -142,27 +85,14 @@ export function AnalysisResultView({
         <div className="bg-clinical-panel border-b border-clinical-border px-3.5 sm:px-5 py-3.5 sm:py-4 flex flex-col md:flex-row md:items-center justify-between gap-3.5 sm:gap-4">
           <div>
             <div className="flex items-center gap-2 text-[10px] sm:text-xs font-mono text-clinical-muted mb-1 flex-wrap">
-              <span>REF: AUD-2026-0928-REF-FREE</span>
-              <span>&bull;</span>
-              <span>ISO-17025 / USP &sect;621</span>
+              <span>{browserOnly ? 'Browser image-quality check' : 'Packaging photo screening'}</span>
             </div>
             <h1 className="font-serif text-lg sm:text-2xl font-bold text-clinical-navy leading-tight">
-              Diagnostic Lab Report: Packaging Integrity
+              Packaging screening report
             </h1>
           </div>
 
           <div className="flex items-stretch sm:items-center gap-2 sm:gap-2.5 w-full md:w-auto justify-end flex-wrap">
-            {/* Requirement 5: "Save this as genuine reference" button */}
-            <button
-              type="button"
-              onClick={() => setShowAddRefModal(true)}
-              className="px-3 py-2 text-xs font-mono text-clinical-navy bg-white hover:bg-clinical-panel border border-clinical-border rounded-[4px] transition-colors flex items-center gap-1.5 min-h-[44px] sm:min-h-[40px] cursor-pointer shadow-hairline flex-1 sm:flex-none justify-center"
-              title="Save this packaging image as an authentic master reference standard"
-            >
-              <BookmarkPlus className="w-3.5 h-3.5 text-clinical-navy flex-shrink-0" />
-              <span>SAVE AS REFERENCE</span>
-            </button>
-
             <button
               type="button"
               onClick={() => window.print()}
@@ -186,25 +116,25 @@ export function AnalysisResultView({
         {/* Specimen Telemetry Dossier Bar */}
         <div className="bg-clinical-surface border-b border-clinical-border px-3.5 sm:px-5 py-2.5 text-[11px] sm:text-xs font-mono text-clinical-subtext grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 bg-graph-paper-dense">
           <div>
-            <span className="block text-[9px] sm:text-[10px] text-clinical-muted uppercase">Analysis Timestamp</span>
-            <span className="text-clinical-navy font-medium truncate block">2026-09-28 18:20:00 UTC</span>
+            <span className="block text-[9px] sm:text-[10px] text-clinical-muted uppercase">Report generated</span>
+            <span className="text-clinical-navy font-medium truncate block">{reportedAt}</span>
           </div>
           <div>
             <span className="block text-[9px] sm:text-[10px] text-clinical-muted uppercase">Verification Protocol</span>
             <span className="text-clinical-navy font-medium truncate block">
-              {result.reference_used ? 'Reference-Assisted Master' : 'Universal Reference-Free'}
+              {browserOnly ? 'Browser optics only' : result.reference_used ? 'Reference-assisted' : 'Reference-free'}
             </span>
           </div>
           <div>
             <span className="block text-[9px] sm:text-[10px] text-clinical-muted uppercase">OCR Text Status</span>
             <span className="text-clinical-navy font-medium truncate block">
-              {result.ocr_extracted_text ? `${result.ocr_extracted_text.length} Chars Extracted` : 'Optical Scan Done'}
+              {result.ocr_extracted_text ? `${result.ocr_extracted_text.length} Chars Extracted` : browserOnly ? 'Unavailable offline' : 'No text extracted'}
             </span>
           </div>
           <div>
             <span className="block text-[9px] sm:text-[10px] text-clinical-muted uppercase">Decoded Barcode</span>
             <span className="text-clinical-navy font-medium truncate block">
-              {result.barcode_details?.is_decoded ? result.barcode_details.primary_code?.type : 'None / Visual'}
+              {result.barcode_details?.is_decoded ? result.barcode_details.primary_code?.type : browserOnly ? 'Unavailable offline' : 'None decoded'}
             </span>
           </div>
         </div>
@@ -217,15 +147,7 @@ export function AnalysisResultView({
                 Specimen Optical Inspection Viewport
               </span>
               <span className="text-[11px] sm:text-xs font-mono text-clinical-muted">
-                {overlays.length > 0 ? (
-                  <span className="text-alert-red font-semibold">
-                    [{overlays.length} FLAGGED ANOMAL{overlays.length > 1 ? 'IES' : 'Y'}]
-                  </span>
-                ) : (
-                  <span className="text-pharm-green font-semibold">
-                    [0 CRITICAL ANOMALIES &mdash; SPEC-PASS]
-                  </span>
-                )}
+                {overlays.length ? `${overlays.length} marked region${overlays.length === 1 ? '' : 's'}` : 'No localized regions'}
               </span>
             </div>
 
@@ -238,12 +160,12 @@ export function AnalysisResultView({
                 {showOverlays ? (
                   <>
                     <EyeOff className="w-3.5 h-3.5" />
-                    <span>HIDE ANOMALY BOXES</span>
+                    <span>HIDE REGIONS</span>
                   </>
                 ) : (
                   <>
                     <Eye className="w-3.5 h-3.5" />
-                    <span>SHOW ANOMALY BOXES</span>
+                    <span>SHOW REGIONS</span>
                   </>
                 )}
               </button>
@@ -251,13 +173,6 @@ export function AnalysisResultView({
           </div>
 
           <div className="relative border border-clinical-border bg-white rounded-[4px] p-2 sm:p-3 flex items-center justify-center min-h-[220px] sm:min-h-[340px] max-h-[480px] overflow-hidden">
-            <div className="absolute top-2 left-2 text-[9px] font-mono text-clinical-muted pointer-events-none select-none z-10 hidden sm:block">
-              FRAME-01 // OPTICAL COORDINATES [0, 0]
-            </div>
-            <div className="absolute top-2 right-2 text-[9px] font-mono text-clinical-muted pointer-events-none select-none z-10 hidden sm:block">
-              GRID: 10MM // OCR CALIBRATED
-            </div>
-
             <div className="relative inline-block max-h-[440px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -269,6 +184,13 @@ export function AnalysisResultView({
               {showOverlays &&
                 overlays.map((overlay) => {
                   const isActive = activeOverlayId === overlay.id;
+                  const isLow = overlay.severity.toLowerCase() === 'low';
+                  const isMedium = overlay.severity.toLowerCase() === 'medium';
+                  const borderColor = isLow ? 'border-pharm-green' : isMedium ? 'border-amber-500' : 'border-alert-red';
+                  const bgColor = isLow ? 'bg-pharm-green/10' : isMedium ? 'bg-amber-500/10' : 'bg-alert-red/10';
+                  const activeBg = isLow ? 'bg-pharm-green/25 ring-pharm-green/40' : isMedium ? 'bg-amber-500/25 ring-amber-500/40' : 'bg-alert-red/25 ring-alert-red/40';
+                  const badgeBg = isLow ? 'bg-pharm-green text-white' : isMedium ? 'bg-amber-600 text-white' : 'bg-alert-red text-white';
+                  const cornerColor = isLow ? 'text-pharm-green' : isMedium ? 'text-amber-500' : 'text-alert-red';
 
                   return (
                     <div
@@ -282,35 +204,35 @@ export function AnalysisResultView({
                         width: `${overlay.width}%`,
                         height: `${overlay.height}%`,
                       }}
-                      className={`absolute border-2 border-alert-red bg-alert-red/10 rounded-[2px] transition-all cursor-pointer z-20 ${
+                      className={`absolute border-2 ${borderColor} ${bgColor} rounded-[2px] transition-all cursor-pointer z-20 ${
                         isActive
-                          ? 'border-alert-red-dark bg-alert-red/25 ring-2 ring-alert-red/40 shadow-lg'
-                          : 'animate-flag-pulse'
+                          ? `${borderColor} ${activeBg} ring-2 shadow-lg`
+                          : isLow ? '' : 'animate-flag-pulse'
                       }`}
                       title={`${overlay.label}: ${overlay.issue}`}
                     >
-                      <span className="absolute -top-1 -left-1 text-[10px] leading-none font-mono text-alert-red font-bold">
+                      <span className={`absolute -top-1 -left-1 text-[10px] leading-none font-mono ${cornerColor} font-bold`}>
                         ┌
                       </span>
-                      <span className="absolute -top-1 -right-1 text-[10px] leading-none font-mono text-alert-red font-bold">
+                      <span className={`absolute -top-1 -right-1 text-[10px] leading-none font-mono ${cornerColor} font-bold`}>
                         ┐
                       </span>
-                      <span className="absolute -bottom-1 -left-1 text-[10px] leading-none font-mono text-alert-red font-bold">
+                      <span className={`absolute -bottom-1 -left-1 text-[10px] leading-none font-mono ${cornerColor} font-bold`}>
                         └
                       </span>
-                      <span className="absolute -bottom-1 -right-1 text-[10px] leading-none font-mono text-alert-red font-bold">
+                      <span className={`absolute -bottom-1 -right-1 text-[10px] leading-none font-mono ${cornerColor} font-bold`}>
                         ┘
                       </span>
 
-                      <div className="absolute -top-6 left-0 bg-alert-red text-white text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-[2px] shadow-sm whitespace-nowrap flex items-center gap-1 z-30 max-w-[130px] sm:max-w-none truncate">
-                        <AlertTriangle className="w-2.5 h-2.5 stroke-[2] flex-shrink-0" />
+                      <div className={`absolute -top-6 left-0 ${badgeBg} text-[9px] sm:text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-[2px] shadow-sm whitespace-nowrap flex items-center gap-1 z-30 max-w-[150px] sm:max-w-none truncate`}>
+                        {isLow ? <Check className="w-2.5 h-2.5 stroke-[2] flex-shrink-0" /> : <AlertTriangle className="w-2.5 h-2.5 stroke-[2] flex-shrink-0" />}
                         <span className="truncate">{overlay.label}</span>
                       </div>
 
                       {isActive && (
-                        <div className="absolute top-full left-0 mt-1 bg-clinical-navy text-white text-[10px] sm:text-[11px] font-mono p-2 rounded-[2px] shadow-lg max-w-[220px] sm:max-w-xs z-40 border border-clinical-navy-dark leading-tight break-words">
-                          <strong className="block text-alert-red-bg font-bold mb-0.5">
-                            ANOMALY DETAILS:
+                        <div className="absolute top-full left-0 mt-1 bg-clinical-navy text-white text-[10px] sm:text-[11px] font-mono p-2 rounded-[2px] shadow-lg max-w-[240px] sm:max-w-xs z-40 border border-clinical-navy-dark leading-tight break-words">
+                          <strong className={`block font-bold mb-0.5 ${isLow ? 'text-pharm-green-bg' : 'text-alert-red-bg'}`}>
+                            {isLow ? 'VERIFIED REGION:' : 'ANOMALY DETAILS:'}
                           </strong>
                           {overlay.issue}
                         </div>
@@ -391,22 +313,21 @@ export function AnalysisResultView({
                 </div>
 
                 <p className="text-xs font-sans text-clinical-subtext mt-2 max-w-md leading-relaxed">
-                  {isPassed
-                    ? 'Packaging conforms to authorized pharmaceutical manufacturing criteria. No structural, typographic, or chronological inconsistencies detected.'
+                  {browserOnly
+                    ? 'Full screening is unavailable. The browser could only measure the quality of the photo.'
+                    : isPassed
+                    ? 'The visible packaging met the screening thresholds. A passing photo cannot establish authenticity or medicine quality.'
                     : isInconclusive
-                    ? 'The uploaded specimen photo contains insufficient legible text or resolution to verify mandatory batch and license markings. Re-scan in direct lighting.'
-                    : result.rule_triggered === 'severe_outlier_fail_safe'
-                    ? 'Packaging classified as SUSPICIOUS under MedVerify\'s fail-safe protocol. A critical check failed severely (< 40% benchmark or HIGH severity flag). Individual critical defects cannot be averaged out.'
-                    : 'Critical packaging discrepancies detected in micro-typography, formulation registry consistency, or edge stroke continuity.'}
+                    ? 'There was insufficient evidence to complete screening. Check the findings below.'
+                    : 'One or more screening checks raised concerns. Review the findings with a pharmacist or the manufacturer.'}
                 </p>
               </div>
             </div>
 
-            {/* Right: Horizontal Confidence Meter (NOT a circular ring) */}
-            <div className="bg-white border border-clinical-border p-3.5 sm:p-4 rounded-[4px] w-full lg:w-auto lg:min-w-[300px] shadow-hairline">
+            {confidenceValue !== null && <div className="bg-white border border-clinical-border p-3.5 sm:p-4 rounded-[4px] w-full lg:w-auto lg:min-w-[300px] shadow-hairline">
               <div className="flex items-center justify-between text-xs font-mono mb-1.5">
                 <span className="font-semibold text-clinical-navy uppercase">
-                  CONFIDENCE METER
+                  SCREENING SCORE
                 </span>
                 <span
                   className={`font-mono text-base font-bold ${
@@ -417,7 +338,7 @@ export function AnalysisResultView({
                       : 'text-alert-red-dark'
                   }`}
                 >
-                  {confidencePercent}%
+                  {confidenceValue.toFixed(1)}%
                 </span>
               </div>
 
@@ -449,24 +370,76 @@ export function AnalysisResultView({
                 </div>
               </div>
 
-              <div className="text-[11px] font-mono text-clinical-subtext mt-2 border-t border-clinical-border pt-1.5 flex items-center justify-between">
-                <span>RELIABILITY:</span>
-                <span className="font-semibold text-clinical-navy">
-                  {confidenceValue >= 80 ? 'HIGH CONCORDANCE' : 'MARGINAL TOLERANCE'}
-                </span>
-              </div>
-            </div>
+            </div>}
           </div>
+
+          <GeminiExplanation result={result} />
 
           {/* First-line Screening Medical Disclaimer */}
           <div className="mt-3.5 bg-clinical-panel/60 border border-clinical-border rounded-[4px] p-3 flex items-start gap-2.5 text-xs text-clinical-subtext">
             <Info className="w-4 h-4 text-clinical-navy flex-shrink-0 mt-0.5 stroke-[1.75]" />
             <div className="leading-relaxed">
-              <strong className="text-clinical-navy font-semibold font-mono">REGULATORY DISCLAIMER: </strong>
+              <strong className="text-clinical-navy font-semibold font-mono">Screening limitations. </strong>
               {result.verdict_disclaimer ||
                 'This is a first-line optical screening tool, not a chemical assay. Suspected counterfeit packaging should be reported directly to the drug manufacturer for batch audit and laboratory chromatography.'}
             </div>
           </div>
+
+          {/* Physical-to-Digital GS1 Cross-Verification Ledger */}
+          {(result.cross_audit_details || result.gs1_details) && (
+            <div className="mt-3.5 bg-white border border-clinical-border rounded-[4px] p-3.5 sm:p-4 text-xs font-mono shadow-hairline">
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-2.5 pb-2 border-b border-clinical-border">
+                <span className="font-bold text-clinical-navy flex items-center gap-1.5 uppercase text-[11px] sm:text-xs">
+                  <ShieldCheck className="w-4 h-4 text-clinical-navy" />
+                  PHYSICAL-TO-DIGITAL GS1 IDENTITY AUDIT
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded-[2px] font-bold text-[10px] sm:text-[11px] uppercase ${
+                    result.cross_audit_details?.status === 'VERIFIED_MATCH'
+                      ? 'bg-pharm-green-bg text-pharm-green-dark border border-pharm-green-border'
+                      : result.cross_audit_details?.status === 'CRITICAL_MISMATCH'
+                      ? 'bg-alert-red-bg text-alert-red-dark border border-alert-red-border'
+                      : 'bg-clinical-panel text-clinical-subtext border border-clinical-border'
+                  }`}
+                >
+                  [{result.cross_audit_details?.status || 'RECORD PRESENT'}]
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5 text-[11px]">
+                <div className="bg-clinical-panel/60 p-2 rounded-[2px] border border-clinical-border/80">
+                  <span className="text-clinical-muted block text-[10px]">PRINTED BATCH (OCR):</span>
+                  <span className="font-bold text-clinical-navy truncate block">
+                    {result.extracted_fields?.batch_number || 'UNVERIFIED / NONE'}
+                  </span>
+                </div>
+                <div className="bg-clinical-panel/60 p-2 rounded-[2px] border border-clinical-border/80">
+                  <span className="text-clinical-muted block text-[10px]">DIGITAL BATCH (GS1):</span>
+                  <span className="font-bold text-clinical-navy truncate block">
+                    {result.cross_audit_details?.digital_batch || result.gs1_details?.batch_number || 'ABSENT / 1D ONLY'}
+                  </span>
+                </div>
+                <div className="bg-clinical-panel/60 p-2 rounded-[2px] border border-clinical-border/80">
+                  <span className="text-clinical-muted block text-[10px]">DIGITAL EXPIRY (GS1):</span>
+                  <span className="font-bold text-clinical-navy truncate block">
+                    {result.cross_audit_details?.digital_expiry || result.gs1_details?.expiry_date || 'ABSENT'}
+                  </span>
+                </div>
+                <div className="bg-clinical-panel/60 p-2 rounded-[2px] border border-clinical-border/80">
+                  <span className="text-clinical-muted block text-[10px]">GTIN / PRODUCT ID:</span>
+                  <span className="font-bold text-clinical-navy truncate block">
+                    {result.cross_audit_details?.gtin || result.gs1_details?.gtin || 'UNINDEXED'}
+                  </span>
+                </div>
+              </div>
+
+              {result.cross_audit_details?.summary && (
+                <p className="mt-2 text-[11px] text-clinical-subtext font-sans leading-relaxed">
+                  {result.cross_audit_details.summary}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 3. BREAKDOWN TABLE: Monospace Font, Laboratory Printout Style */}
@@ -478,12 +451,12 @@ export function AnalysisResultView({
                 Forensic Inspection Breakdown ({breakdownChecks.length} Parameters)
               </h3>
               <span className="text-[10px] sm:text-[11px] font-mono text-clinical-muted">
-                LAB PRINTOUT // MULTI-MODAL REFERENCE-FREE &amp; SPECTROMETRIC CHECKS
+                Scores reflect the visible photo.
               </span>
             </div>
             <div className="text-[10px] sm:text-[11px] font-mono text-clinical-muted flex items-center gap-2">
               <span className="sm:hidden text-clinical-navy font-semibold">&larr; Swipe table &rarr;</span>
-              <span className="hidden sm:inline">CALIBRATION: NIST &amp; USP-NF TRACEABLE</span>
+
             </div>
           </div>
 
@@ -512,7 +485,7 @@ export function AnalysisResultView({
                     </td>
                     <td className="py-2.5 sm:py-3 px-3 sm:px-4 text-xs sm:text-sm font-bold">
                       {chk.isSkipped ? (
-                        <span className="text-clinical-muted text-[11px] font-normal">N/A (Skipped)</span>
+                        <span className="text-clinical-muted text-[11px] font-normal">Unavailable</span>
                       ) : (
                         <>
                           {chk.score.toFixed(1)}{' '}
@@ -528,7 +501,7 @@ export function AnalysisResultView({
                     <td className="py-2.5 sm:py-3 px-3 sm:px-4">
                       {chk.isSkipped ? (
                         <span className="inline-block px-2 py-0.5 rounded-[2px] bg-clinical-panel text-clinical-subtext border border-clinical-border font-mono text-[10px] sm:text-[11px]">
-                          [OPTIONAL]
+                          [UNAVAILABLE]
                         </span>
                       ) : chk.passed ? (
                         <span className="inline-block px-2 py-0.5 rounded-[2px] bg-pharm-green-bg text-pharm-green-dark border border-pharm-green-border font-bold text-[10px] sm:text-[11px]">
@@ -567,18 +540,18 @@ export function AnalysisResultView({
               Detailed Verification Flags Ledger ({result.flags.length})
             </h3>
             <span className="text-[10px] sm:text-[11px] font-mono text-clinical-muted">
-              SORTED BY FORENSIC SEVERITY
+              SCREENING FINDINGS
             </span>
           </div>
 
           {result.flags.length === 0 ? (
             <div className="p-4 sm:p-6 text-center text-xs font-mono text-clinical-muted border border-clinical-border rounded-[4px] bg-clinical-panel">
-              NO ADVERSE PACKAGING DISCREPANCIES RECORDED. SPECIMEN CONFORMS TO CONTROL.
+              No individual findings were reported.
             </div>
           ) : (
             <div className="space-y-2.5">
               {result.flags.map((flag, idx) => {
-                const overlayMatch = overlays[idx];
+                const overlayMatch = overlays.find((overlay) => overlay.issue === flag.issue);
                 const isActive = activeOverlayId === overlayMatch?.id;
                 const isAlert =
                   flag.severity.toLowerCase() === 'critical' ||
@@ -651,117 +624,6 @@ export function AnalysisResultView({
         </div>
       </div>
 
-      {/* Requirement 5: "Save as Genuine Reference" Modal Dialog */}
-      {showAddRefModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-clinical-navy/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-clinical-surface border border-clinical-border rounded-[4px] shadow-2xl max-w-md w-full max-h-[92dvh] flex flex-col overflow-hidden">
-            <div className="bg-clinical-panel border-b border-clinical-border px-4 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <BookmarkPlus className="w-4 h-4 text-clinical-navy stroke-[1.75]" />
-                <h3 className="font-serif text-sm sm:text-base font-bold text-clinical-navy">
-                  Register Genuine Master Reference
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAddRefModal(false)}
-                className="text-clinical-muted hover:text-clinical-navy text-xs font-mono min-h-[36px] px-2 flex items-center cursor-pointer"
-              >
-                [ESC / CLOSE]
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveReference} className="p-4 sm:p-5 space-y-3.5 sm:space-y-4 overflow-y-auto">
-              <p className="text-xs font-sans text-clinical-subtext leading-relaxed">
-                If you have verified this packaging specimen through official manufacturer batch records, 
-                you can register it as an authentic control master. Future scans will compare color gamut against this image.
-              </p>
-
-              {refSaveSuccess && (
-                <div className="p-3 bg-pharm-green-bg border border-pharm-green-border rounded-[2px] text-xs font-mono text-pharm-green-dark flex items-center gap-2">
-                  <Check className="w-4 h-4 text-pharm-green flex-shrink-0" />
-                  <span>{refSaveSuccess}</span>
-                </div>
-              )}
-
-              {refSaveError && (
-                <div className="p-3 bg-alert-red-bg border border-alert-red-border rounded-[2px] text-xs font-mono text-alert-red-dark flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-alert-red flex-shrink-0" />
-                  <span>{refSaveError}</span>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-mono font-bold text-clinical-navy mb-1">
-                  BRAND IDENTIFIER SLUG (Required):
-                </label>
-                <input
-                  type="text"
-                  value={refBrandId}
-                  onChange={(e) => setRefBrandId(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-                  placeholder="e.g. dolo650, crocin, tretiva"
-                  required
-                  className="w-full bg-white border border-clinical-border rounded-[4px] px-3 py-2 text-[14px] sm:text-xs font-mono text-clinical-navy focus:outline-none focus:border-clinical-navy min-h-[42px]"
-                />
-                <span className="text-[10px] font-mono text-clinical-muted mt-1 block">
-                  Saves to /reference_images/{refBrandId || '[brand]'}/genuine.png
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-mono font-bold text-clinical-navy mb-1">
-                  BRAND DISPLAY NAME:
-                </label>
-                <input
-                  type="text"
-                  value={refBrandName}
-                  onChange={(e) => setRefBrandName(e.target.value)}
-                  placeholder="e.g. Dolo 650 Tablets"
-                  className="w-full bg-white border border-clinical-border rounded-[4px] px-3 py-2 text-[14px] sm:text-xs font-sans text-clinical-navy focus:outline-none focus:border-clinical-navy min-h-[42px]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-mono font-bold text-clinical-navy mb-1">
-                  LICENSED MANUFACTURER:
-                </label>
-                <input
-                  type="text"
-                  value={refManufacturer}
-                  onChange={(e) => setRefManufacturer(e.target.value)}
-                  placeholder="e.g. Micro Labs Limited"
-                  className="w-full bg-white border border-clinical-border rounded-[4px] px-3 py-2 text-[14px] sm:text-xs font-sans text-clinical-navy focus:outline-none focus:border-clinical-navy min-h-[42px]"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setShowAddRefModal(false)}
-                  disabled={isSavingRef}
-                  className="px-3.5 py-2 text-xs font-mono text-clinical-subtext hover:text-clinical-navy bg-clinical-surface hover:bg-clinical-panel border border-clinical-border rounded-[4px] transition-colors min-h-[44px] cursor-pointer"
-                >
-                  CANCEL
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingRef}
-                  className="px-4 py-2 text-xs font-mono font-semibold text-white bg-clinical-navy hover:bg-clinical-navy-light rounded-[4px] transition-colors flex items-center gap-1.5 shadow-hairline disabled:opacity-75 min-h-[44px] cursor-pointer"
-                >
-                  {isSavingRef ? (
-                    <span>SAVING MASTER...</span>
-                  ) : (
-                    <>
-                      <BookmarkPlus className="w-3.5 h-3.5" />
-                      <span>REGISTER REFERENCE</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

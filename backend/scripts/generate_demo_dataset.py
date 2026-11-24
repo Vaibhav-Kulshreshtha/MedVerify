@@ -19,7 +19,7 @@ Outputs are organized in:
 """
 
 import os
-import shutil
+from calendar import monthrange
 import cv2
 import numpy as np
 
@@ -75,7 +75,9 @@ def draw_genuine_packaging(
     for x in range(45, 480, 4):
         thickness = 2 if (x % 3 == 0) else 1
         cv2.line(img, (x, 385), (x, 470), (15, 25, 35), thickness)
-    cv2.putText(img, f"(01){gtin_code}(17)281231(10){batch_lot}", (45, 498), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (15, 42, 63), 1, cv2.LINE_AA)
+    month, year = map(int, expiry.split("/"))
+    gs1_expiry = f"{year % 100:02d}{month:02d}{monthrange(year, month)[1]:02d}"
+    cv2.putText(img, f"(01){gtin_code}(17){gs1_expiry}(10){batch_lot}", (45, 498), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (15, 42, 63), 1, cv2.LINE_AA)
 
     # Holographic Tamper Evident Seal Badge on the right
     seal_x, seal_y, seal_w, seal_h = w - 290, 370, 245, 130
@@ -95,7 +97,7 @@ def draw_genuine_packaging(
     return img
 
 
-def create_counterfeit_version(genuine_img: np.ndarray) -> np.ndarray:
+def create_counterfeit_version(genuine_img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     """
     Transforms an authentic image into an engineered 'counterfeit/suspicious' specimen:
       1. Blurs image (simulates low-res scan & cheap inkjet head)
@@ -118,7 +120,7 @@ def create_counterfeit_version(genuine_img: np.ndarray) -> np.ndarray:
     fake = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
     # Step 3: Add digital dithering noise (simulates cheap dot-matrix printing)
-    noise = np.random.normal(0, 18, fake.shape).astype(np.float32)
+    noise = rng.normal(0, 18, fake.shape).astype(np.float32)
     fake = np.clip(fake.astype(np.float32) + noise, 0, 255).astype(np.uint8)
 
     # Step 4: Secondary micro-blur to soften speckle edges (ink bleed on absorbent paper)
@@ -207,6 +209,7 @@ def main():
         },
     ]
 
+    rng = np.random.default_rng(0)
     for b in brands:
         print(f"\n[Generating Dataset] Brand: {b['name']} ({b['id']})...")
 
@@ -223,13 +226,10 @@ def main():
         )
 
         # 2. Generate Counterfeit/Suspicious Copy
-        fake_img = create_counterfeit_version(genuine_img)
+        fake_img = create_counterfeit_version(genuine_img, rng)
 
         # Save paths
         paths_to_save = [
-            # Reference image locations
-            (os.path.join(base_dir, "reference_images", b["id"], "genuine.png"), genuine_img),
-            (os.path.join(root_dir, "reference_images", b["id"], "genuine.png"), genuine_img),
             # Demo test case locations in backend
             (os.path.join(base_dir, "demo_test_images", f"{b['id']}_genuine.png"), genuine_img),
             (os.path.join(base_dir, "demo_test_images", f"{b['id']}_fake.png"), fake_img),
@@ -238,9 +238,16 @@ def main():
             (os.path.join(root_dir, "frontend", "public", "demo_samples", f"{b['id']}_fake.png"), fake_img),
         ]
 
+        # Demo generation must preserve registered references, including user-provided photographs.
+        for ref_root in (base_dir, root_dir):
+            reference = os.path.join(ref_root, "reference_images", b["id"], "genuine.png")
+            if not os.path.exists(reference):
+                paths_to_save.append((reference, genuine_img))
+
         for filepath, img_data in paths_to_save:
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            cv2.imwrite(filepath, img_data)
+            if not cv2.imwrite(filepath, img_data):
+                raise OSError(f"Could not save demo image: {filepath}")
             print(f"  -> Saved: {os.path.relpath(filepath, root_dir)}")
 
     print("\n✅ Dataset generation complete! All reference and demo test cases created.")

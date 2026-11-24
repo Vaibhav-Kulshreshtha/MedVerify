@@ -19,7 +19,7 @@ import { analyzePackaging, fetchBrands, DEFAULT_BRANDS, MedicineBrand } from '@/
 import { AnalysisResult } from '@/lib/types';
 
 interface ImageUploaderProps {
-  onAnalysisSuccess: (result: AnalysisResult, previewUrl: string) => void;
+  onAnalysisSuccess: (result: AnalysisResult, file: File) => void;
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -37,34 +37,46 @@ export function ImageUploader({
   // Default to "auto" (Auto-detect / Other - Reference-free mode)
   const [selectedBrand, setSelectedBrand] = useState<string>('auto');
   const [brands, setBrands] = useState<MedicineBrand[]>(DEFAULT_BRANDS);
-  const [scanStepIndex, setScanStepIndex] = useState(0);
+  const [includeAi, setIncludeAi] = useState(false);
+  const [loadingDemo, setLoadingDemo] = useState(false);
+  const selectionRevision = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Ticker for scanner passes during analysis
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (isLoading) {
-      setScanStepIndex(0);
-      timer = setInterval(() => {
-        setScanStepIndex((prev) => (prev + 1) % 4);
-      }, 700);
-    }
-    return () => clearInterval(timer);
-  }, [isLoading]);
+    if (!previewUrl) return;
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
 
   // Fetch available brands on mount
   useEffect(() => {
-    fetchBrands().then((loaded) => {
-      if (loaded && loaded.length > 0) {
-        setBrands(loaded);
-      }
-    });
+    let revision = 0;
+    const refresh = async () => {
+      const current = ++revision;
+      const loaded = await fetchBrands();
+      if (current !== revision) return;
+      setBrands(loaded);
+      setSelectedBrand((id) => loaded.some((brand) => brand.id === id) ? id : 'auto');
+    };
+    void refresh();
+    window.addEventListener('medverify-gateway-change', refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      revision++;
+      window.removeEventListener('medverify-gateway-change', refresh);
+      window.removeEventListener('storage', refresh);
+    };
   }, []);
 
   const handleFile = (file: File) => {
-    if (!file.type.startsWith('image/')) {
+    selectionRevision.current++;
+    setLoadingDemo(false);
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       setError('Invalid specimen file format. Accepted types: JPEG, PNG, WebP.');
+      return;
+    }
+    if (!file.size || file.size > 15 * 1024 * 1024) {
+      setError('Choose a nonempty image up to 15 MB.');
       return;
     }
     setError(null);
@@ -100,9 +112,8 @@ export function ImageUploader({
 
   const clearSelection = () => {
     setSelectedFile(null);
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
+    selectionRevision.current++;
+    setLoadingDemo(false);
     setPreviewUrl(null);
     setError(null);
     if (fileInputRef.current) {
@@ -114,14 +125,14 @@ export function ImageUploader({
   };
 
   const handleSubmit = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || loadingDemo || isLoading) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
-      const result = await analyzePackaging(selectedFile, selectedBrand);
-      onAnalysisSuccess(result, previewUrl || '');
+      const result = await analyzePackaging(selectedFile, selectedBrand, includeAi);
+      onAnalysisSuccess(result, selectedFile);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -135,67 +146,28 @@ export function ImageUploader({
 
   // Demo test case loader for quick testing
   const loadDemoCase = async (brandId: string, type: 'genuine' | 'fake') => {
+    const revision = ++selectionRevision.current;
     setError(null);
-    const targetBrand = brandId === 'auto' ? 'dolo650' : brandId;
-    setSelectedBrand(targetBrand);
-    const filename = `${targetBrand}_${type}.png`;
-    const demoUrl = `/demo_samples/${filename}`;
-
+    setLoadingDemo(true);
+    // The Tretiva alias uses the same packaged sample.
+    const sampleBrand = brandId === 'auto' ? 'dolo650' : brandId === 'tetriva20' ? 'tretiva' : brandId;
+    const filename = `${sampleBrand}_${type}.png`;
     try {
-      const res = await fetch(demoUrl);
-      if (!res.ok) {
-        throw new Error(`Demo sample file not found: ${demoUrl}`);
-      }
+      const res = await fetch(`/demo_samples/${encodeURIComponent(filename)}`);
+      if (!res.ok) throw new Error('Sample unavailable');
       const blob = await res.blob();
-      const file = new File([blob], filename, { type: 'image/png' });
-      handleFile(file);
+      if (selectionRevision.current !== revision) return;
+      setSelectedBrand(brandId === 'auto' ? sampleBrand : brandId);
+      handleFile(new File([blob], filename, { type: 'image/png' }));
     } catch {
-      generateCanvasFallback(targetBrand, type);
+      if (selectionRevision.current === revision) {
+        setLoadingDemo(false);
+        setError('No demo image is available for this brand. Choose another brand or upload a photo.');
+      }
     }
   };
 
-  const generateCanvasFallback = (brandId: string, type: 'genuine' | 'fake') => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 860;
-    canvas.height = 540;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const brandInfo = brands.find((b) => b.id === brandId) || brands[0];
-    const isGen = type === 'genuine';
-
-    ctx.fillStyle = isGen ? '#FAF7F2' : '#F6ECEC';
-    ctx.fillRect(0, 0, 860, 540);
-
-    ctx.fillStyle = isGen ? brandInfo.color_theme : '#8C1B20';
-    ctx.fillRect(25, 25, 810, 110);
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 30px "Source Serif 4", serif';
-    ctx.fillText(brandInfo.name.toUpperCase(), 50, 85);
-
-    ctx.fillStyle = '#0F2A3F';
-    ctx.font = 'bold 18px "JetBrains Mono", monospace';
-    ctx.fillText(`SPECIMEN: ${isGen ? 'AUTHENTIC MASTER PACK' : 'SUSPICIOUS / COUNTERFEIT SAMPLE'}`, 50, 180);
-    ctx.fillText(`BATCH LOT: ${brandInfo.lot_prefix}-9941B`, 50, 220);
-    ctx.fillText(`MFG: ${brandInfo.manufacturer}`, 50, 260);
-
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const file = new File([blob], `${brandId}_${type}.png`, { type: 'image/png' });
-        handleFile(file);
-      }
-    }, 'image/png');
-  };
-
   const currentBrandInfo = brands.find((b) => b.id === selectedBrand);
-
-  const scanSteps = [
-    'PASS 1/4: COMPUTING SPATIAL GRADIENTS (LAPLACIAN SHARPNESS & CANNY CONTOURS)...',
-    'PASS 2/4: OPTICAL CHARACTER RECOGNITION (OCR TEXT SEGMENTATION & EXTRACTION)...',
-    'PASS 3/4: REGULATORY REGEX FIELD AUDIT (BATCH, EXP > MFG TIMELINE, MRP, LIC)...',
-    'PASS 4/4: PHARMACOPEIAL DATABASE CROSS-CHECK & OPTICAL BARCODE DECODING...',
-  ];
 
   return (
     <div className="bg-clinical-surface border border-clinical-border rounded-[4px] shadow-hairline overflow-hidden">
@@ -205,10 +177,10 @@ export function ImageUploader({
           <Scan className="w-4 h-4 text-clinical-navy stroke-[1.75] flex-shrink-0" />
           <div>
             <h2 className="font-serif text-base sm:text-lg font-bold text-clinical-navy leading-none">
-              Optical Document Scanner // Ingestion Bed
+              Packaging photo
             </h2>
             <span className="text-[10px] sm:text-[11px] font-mono text-clinical-muted">
-              STATION: FLATBED OPTICAL PLATEN A4 // 600 DPI CALIBRATED
+              Upload a packaging photo or try a sample.
             </span>
           </div>
         </div>
@@ -216,27 +188,27 @@ export function ImageUploader({
         {/* Demo Test Case Shortcuts */}
         <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
           <span className="text-[11px] font-mono text-clinical-muted hidden md:inline">
-            TEST SPECIMENS:
+            SYNTHETIC SAMPLES
           </span>
           <button
             type="button"
             onClick={() => loadDemoCase(selectedBrand, 'genuine')}
-            disabled={isLoading}
+            disabled={isLoading || loadingDemo}
             className="text-[11px] sm:text-xs font-mono px-3 py-2 rounded-[4px] border border-pharm-green-border text-pharm-green-dark bg-pharm-green-bg hover:bg-[#E2EFE7] active:bg-[#D5EADF] transition-colors flex items-center gap-1.5 cursor-pointer flex-1 sm:flex-none justify-center min-h-[44px] sm:min-h-[36px]"
-            title="Load authentic reference test case"
+            title="Load a clear synthetic demo photo"
           >
             <CheckCircle className="w-3.5 h-3.5 stroke-[1.75] flex-shrink-0" />
-            <span>TEST: GENUINE SPECIMEN</span>
+            <span>Clear sample</span>
           </button>
           <button
             type="button"
             onClick={() => loadDemoCase(selectedBrand, 'fake')}
-            disabled={isLoading}
+            disabled={isLoading || loadingDemo}
             className="text-[11px] sm:text-xs font-mono px-3 py-2 rounded-[4px] border border-alert-red-border text-alert-red-dark bg-alert-red-bg hover:bg-[#F9E6E6] active:bg-[#F3D5D5] transition-colors flex items-center gap-1.5 cursor-pointer flex-1 sm:flex-none justify-center min-h-[44px] sm:min-h-[36px]"
-            title="Load blurred/desaturated fake test case"
+            title="Load a degraded synthetic demo photo"
           >
             <AlertTriangle className="w-3.5 h-3.5 stroke-[1.75] flex-shrink-0" />
-            <span>TEST: SUSPICIOUS FAKE</span>
+            <span>Degraded sample</span>
           </button>
         </div>
       </div>
@@ -269,6 +241,7 @@ export function ImageUploader({
           <div className="w-full sm:w-auto">
             <select
               id="brand-select-dropdown"
+              disabled={isLoading || loadingDemo}
               value={selectedBrand}
               onChange={(e) => setSelectedBrand(e.target.value)}
               className="w-full sm:w-auto bg-white border border-clinical-border text-clinical-navy font-mono text-[13px] sm:text-xs px-3 py-2 sm:py-2 rounded-[4px] focus:outline-none focus:border-clinical-navy shadow-hairline cursor-pointer min-h-[44px] sm:min-h-[38px]"
@@ -277,7 +250,7 @@ export function ImageUploader({
               <option value="auto">
                 Auto-detect / Other (Universal Reference-Free)
               </option>
-              <optgroup label="Registered Authentic Reference Masters">
+              <optgroup label="Registered packaging references">
                 {brands.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.fullName}
@@ -300,7 +273,7 @@ export function ImageUploader({
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/*"
+          accept="image/png,image/jpeg,image/webp"
           capture="environment"
           onChange={handleFileInputChange}
           className="hidden"
@@ -322,30 +295,6 @@ export function ImageUploader({
                   : 'border-clinical-border-dark hover:border-clinical-navy hover:bg-clinical-panel/40'
               }`}
             >
-              {/* Scanner Top Ruler Simulation */}
-              <div className="absolute top-0 left-0 right-0 h-4 border-b border-clinical-border bg-clinical-panel/80 hidden sm:flex items-center justify-between px-3 text-[9px] font-mono text-clinical-muted pointer-events-none">
-                <span>0mm</span>
-                <span>50mm</span>
-                <span>100mm</span>
-                <span>150mm</span>
-                <span>200mm</span>
-                <span>250mm</span>
-              </div>
-
-              {/* Scanner Corner Alignment Guides */}
-              <div className="absolute top-6 left-5 text-[10px] font-mono text-clinical-muted pointer-events-none hidden sm:block">
-                ┌ ORIGIN [0, 0]
-              </div>
-              <div className="absolute top-6 right-3 text-[10px] font-mono text-clinical-muted pointer-events-none hidden sm:block">
-                ┐
-              </div>
-              <div className="absolute bottom-3 left-5 text-[10px] font-mono text-clinical-muted pointer-events-none hidden sm:block">
-                └
-              </div>
-              <div className="absolute bottom-3 right-3 text-[10px] font-mono text-clinical-muted pointer-events-none hidden sm:block">
-                MAX [A4] ┘
-              </div>
-
               {/* Scanner Center Optical Target */}
               <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-[4px] border border-clinical-border bg-white flex items-center justify-center text-clinical-navy mb-3 shadow-hairline mt-1 sm:mt-2">
                 <Upload className="w-5 h-5 sm:w-6 sm:h-6 stroke-[1.5]" />
@@ -353,7 +302,7 @@ export function ImageUploader({
 
               {/* Instructional Text */}
               <h3 className="font-serif text-base sm:text-xl font-bold text-clinical-navy mb-1.5 px-2">
-                Place Medicine Packaging on Scanner Bed
+                Upload a packaging photo
               </h3>
               <p className="text-xs sm:text-sm font-sans text-clinical-subtext max-w-lg mb-4 leading-relaxed font-normal px-2">
                 Take a photo or upload an image of the medicine packaging &mdash; capture front label and batch number area.
@@ -383,7 +332,7 @@ export function ImageUploader({
                 <span className="hidden sm:inline">DRAG &amp; DROP &bull;</span>
                 <span>JPG, PNG, WEBP</span>
                 <span>&bull;</span>
-                <span>600 DPI COMPATIBLE</span>
+                <span>UP TO 15 MB</span>
               </div>
             </div>
           </div>
@@ -397,7 +346,7 @@ export function ImageUploader({
                   <Maximize2 className="w-3.5 h-3.5 flex-shrink-0" />
                   OPTICAL SCANNER // {selectedBrand === 'auto' ? 'UNIVERSAL' : currentBrandInfo?.name.toUpperCase()}
                 </span>
-                <span className="hidden sm:inline">600 DPI CALIBRATED</span>
+
               </div>
 
               {/* Preview Thumbnail Container */}
@@ -429,7 +378,7 @@ export function ImageUploader({
                       <div className="flex items-center gap-2 truncate">
                         <ScanLine className="w-3.5 h-3.5 text-pharm-green flex-shrink-0 animate-pulse" />
                         <span className="truncate text-white font-semibold">
-                          {scanSteps[scanStepIndex]}
+                          Screening the selected photo…
                         </span>
                       </div>
                       <span className="text-[10px] text-slate-400 hidden sm:inline flex-shrink-0 ml-2">
@@ -466,6 +415,15 @@ export function ImageUploader({
               </div>
             </div>
 
+            <label className="flex items-start gap-2.5 text-sm text-clinical-navy">
+              <input type="checkbox" className="mt-1" checked={includeAi} disabled={isLoading}
+                onChange={(event) => setIncludeAi(event.target.checked)} />
+              <span>
+                <strong className="block">Explain results with Gemini</strong>
+                <span className="text-xs text-clinical-subtext">Send only screening metrics to Google for a plain-language explanation.</span>
+              </span>
+            </label>
+
             {/* Action Buttons */}
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 pt-1">
               <div className="flex items-center gap-2 text-xs font-mono text-clinical-subtext justify-between sm:justify-start flex-wrap">
@@ -482,7 +440,7 @@ export function ImageUploader({
                 <button
                   type="button"
                   onClick={clearSelection}
-                  disabled={isLoading}
+                  disabled={isLoading || loadingDemo}
                   className="w-full sm:w-auto px-4 py-2.5 text-xs font-mono text-clinical-subtext hover:text-clinical-navy bg-clinical-surface hover:bg-clinical-panel border border-clinical-border rounded-[4px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px]"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -492,13 +450,13 @@ export function ImageUploader({
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={isLoading}
+                  disabled={isLoading || loadingDemo}
                   className="w-full sm:w-auto px-6 py-2.5 text-xs font-mono font-semibold text-white bg-clinical-navy hover:bg-clinical-navy-light active:bg-clinical-navy-dark disabled:opacity-75 rounded-[4px] transition-colors border border-clinical-navy flex items-center justify-center gap-2 shadow-hairline cursor-pointer min-h-[44px]"
                 >
                   {isLoading ? (
                     <>
                       <ScanLine className="w-4 h-4 text-pharm-green animate-pulse" />
-                      <span>SCREENING PACKAGING (OPENCV + OCR)...</span>
+                      <span>SCREENING PACKAGING…</span>
                     </>
                   ) : (
                     <>

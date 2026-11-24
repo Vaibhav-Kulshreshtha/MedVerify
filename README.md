@@ -1,118 +1,58 @@
-# MedVerify 💊
+# MedVerify
 
-> **Counterfeit Medicine Packaging Detector** — A full-stack AI-ready verification system to detect fake, tampered, or sub-standard pharmaceutical packaging.
+MedVerify screens medicine packaging photos for visible anomalies. The FastAPI backend measures print sharpness, compares colors when a brand reference is selected, reads label text with Tesseract and checks decoded barcodes against readable fields. The Next.js frontend shows the measurements and the evidence available for each scan. Bundled examples and the local medicine catalog are demonstration data. A packaging photo alone cannot establish the authenticity or contents of a medicine.
 
----
+## Run locally
 
-## 🏗 Architecture Overview
+Use Python 3.11 or later and Node.js 22 or 24. The backend needs the Tesseract executable with English language data for OCR. Install ZBar for the additional barcode formats supported by pyzbar. Both Dockerfiles include these dependencies. On macOS with Homebrew, run `brew install tesseract zbar`.
 
-The repository is structured into two cleanly separated services:
+From the repository root, start the API:
 
-```text
-MedVerify/
-├── frontend/                     # Next.js 14 (App Router) + TypeScript + Tailwind CSS
-│   ├── app/                      # Next.js App Router (layout, page, styles)
-│   ├── components/               # Modular UI components (Header, ImageUploader, AnalysisResultView, Status)
-│   ├── lib/                      # API client, TypeScript types, and utilities
-│   ├── .env.local                # Frontend environment variables (API URL)
-│   ├── .env.example              # Template environment configuration
-│   └── package.json
-│
-└── backend/                      # Python FastAPI Service
-    ├── app/
-    │   ├── __init__.py
-    │   ├── main.py               # FastAPI application with /analyze endpoint & CORS
-    │   ├── schemas.py            # Pydantic models for request & response
-    │   └── config.py             # App settings and CORS origins
-    ├── requirements.txt          # Python dependencies
-    ├── .env                      # Backend environment variables
-    ├── .env.example              # Template backend environment configuration
-    └── README.md
-```
-
----
-
-## ⚡ Quick Start
-
-### 1. Start the Backend (FastAPI)
-
-```bash
+```sh
 cd backend
-
-# Create and activate Python virtual environment
 python3 -m venv venv
 source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start FastAPI development server
+python -m pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-- API Base URL: `http://localhost:8000`
-- Interactive Swagger Docs: `http://localhost:8000/docs`
-- Health Check: `http://localhost:8000/health`
+In a second terminal, start the web app:
 
-### 2. Start the Frontend (Next.js 14)
-
-In a separate terminal:
-
-```bash
+```sh
 cd frontend
-
-# Install dependencies (already installed)
-npm install
-
-# Start Next.js development server
+npm ci
 npm run dev
 ```
 
-- Web App: `http://localhost:3000`
+Open [MedVerify](http://localhost:3000). The development frontend can proxy requests to port 8000. For separate deployments, set `NEXT_PUBLIC_API_URL` to the backend URL and add the frontend origin to the backend's comma-separated `CORS_ORIGINS`. The [API documentation](http://localhost:8000/docs) lists the full request and response schemas.
 
----
+## Gemini explanations
 
-## 📡 API Contract (`POST /analyze`)
+Set `GEMINI_API_KEY` in `backend/.env` or in the backend host's secret settings, then restart the API. The optional `GEMINI_MODEL` setting defaults to `gemini-3.5-flash-lite`. Get a key from [Google AI Studio](https://aistudio.google.com/apikey).
 
-### Request
-- **Method**: `POST`
-- **Path**: `/analyze`
-- **Query Param (Optional)**: `mock_verdict=genuine` or `mock_verdict=suspicious` (useful for testing UI states)
-- **Body**: `multipart/form-data`
-  - `image`: Image file (`image/jpeg`, `image/png`, `image/webp`)
+Select **Explain results with Gemini** before running a scan. The backend sends Google the screening verdict, numeric optical measurements, and indicators for readable fields and barcode checks. The photo, filename, label text, and label identifiers stay out of the request. Gemini returns a short explanation alongside the original screening. Each backend worker limits explanations to 10 attempts per minute. Scans still return their findings when the key is missing, the quota is reached, or Google is unavailable.
 
-### Response Schema (`200 OK`)
-```json
-{
-  "verdict": "genuine" | "suspicious",
-  "confidence": 0.96,
-  "flags": [
-    {
-      "issue": "Typography mismatch: micro-font weight deviates 18% from authentic pharmaceutical reference",
-      "severity": "high"
-    },
-    {
-      "issue": "Holographic security seal boundary is misaligned by 3.8mm",
-      "severity": "critical"
-    }
-  ],
-  "sharpness_score": 94.8,
-  "color_match_score": 97.5
-}
+## Analyze a sample
+
+```sh
+curl -sS http://localhost:8000/analyze \
+  -F image=@backend/demo_test_images/dolo650_genuine.png \
+  -F brand=dolo650 \
+  -F include_ai=true
 ```
 
----
+The `brand` and `include_ai` form fields are optional. The report contains a `verdict` of `PASSED SCREENING`, `INCONCLUSIVE`, or `SUSPICIOUS`. An opted-in scan adds `ai_explanation` with a status and, on success, a summary. When the backend is offline, the browser can perform a limited image-quality check and labels the result inconclusive.
 
-## ⚙️ Environment Variables
+The operator workflow for registering a reference is in the [backend guide](backend/README.md).
 
-### Frontend (`frontend/.env.local`)
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
+## Verify changes
+
+From the repository root, with backend and frontend dependencies installed:
+
+```sh
+backend/venv/bin/python -m unittest discover -s backend/scripts -p 'test_*.py'
+npm run lint
+npm run build
 ```
 
-### Backend (`backend/.env`)
-```env
-HOST=0.0.0.0
-PORT=8000
-CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-```
+The automated Gemini tests use mocked responses and work without a key.
