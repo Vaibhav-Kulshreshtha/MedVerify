@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     if (!apiKey) {
       return NextResponse.json({
         status: 'not_configured',
-        summary: 'To enable Gemini AI explanations, add GEMINI_API_KEY to your environment variables.'
+        summary: 'To enable Gemini AI explanations, configure GEMINI_API_KEY in your environment variables.'
       });
     }
 
@@ -25,7 +25,7 @@ Explain the following optical screening scan results in 2-3 concise, professiona
 
 Note: Packaging visual checks screen for visible print anomalies and do not replace chemical assay testing. Keep explanation clear and clinical.`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -39,41 +39,56 @@ function smoothGray(gray: Float32Array, width: number, height: number): Float32A
   return out;
 }
 
-// Calibrated Noise-Resistant Laplacian Spatial Variance (Mirroring OpenCV)
+// Calibrated Noise-Resistant Laplacian Spatial Variance with ROI Block Focus
+// Handles real consumer photos with background tables, hands, or beds by focusing on the active packaging print
 function calculateSharpness(gray: Float32Array, width: number, height: number): { score: number; variance: number } {
   const smoothed = smoothGray(gray, width, height);
-  let sum = 0;
-  let sumSq = 0;
-  let count = 0;
+  const blockSize = Math.max(16, Math.floor(Math.min(width, height) / 10));
+  const variances: number[] = [];
 
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const idx = y * width + x;
-      // Discrete 3x3 Laplacian kernel: [[0, 1, 0], [1, -4, 1], [0, 1, 0]]
-      const lap = smoothed[idx - width] + smoothed[idx + width] + smoothed[idx - 1] + smoothed[idx + 1] - 4 * smoothed[idx];
-      sum += lap;
-      sumSq += lap * lap;
-      count++;
+  for (let by = 0; by < height - blockSize; by += blockSize) {
+    for (let bx = 0; bx < width - blockSize; bx += blockSize) {
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
+      for (let y = by + 1; y < by + blockSize - 1; y++) {
+        for (let x = bx + 1; x < bx + blockSize - 1; x++) {
+          const idx = y * width + x;
+          const lap = smoothed[idx - width] + smoothed[idx + width] + smoothed[idx - 1] + smoothed[idx + 1] - 4 * smoothed[idx];
+          sum += lap;
+          sumSq += lap * lap;
+          count++;
+        }
+      }
+      if (count > 0) {
+        const mean = sum / count;
+        const v = Math.max(0, sumSq / count - mean * mean);
+        variances.push(v);
+      }
     }
   }
 
-  if (count === 0) return { score: 0, variance: 0 };
-  const mean = sum / count;
-  const variance = Math.max(0, sumSq / count - mean * mean);
+  if (variances.length === 0) return { score: 85, variance: 300 };
+  variances.sort((a, b) => b - a);
 
-  // Calibrated curve matching python cv_analyzer.py:
-  // Blurred / counterfeit print (variance < 120) scores < 26.0 (trips < 28.0 fail-safe)
-  // Industrial typography (variance >= 500) scores >= 85.0
+  // Take the top 35% most active blocks (representing the packaging text/strip, ignoring flat tables)
+  const topCount = Math.max(1, Math.floor(variances.length * 0.35));
+  let topSum = 0;
+  for (let i = 0; i < topCount; i++) topSum += variances[i];
+  const activeVariance = topSum / topCount;
+
   let score: number;
-  if (variance <= 0) {
-    score = 0;
-  } else if (variance < 120) {
-    score = (variance / 120) * 26.0;
+  if (activeVariance <= 0) {
+    score = 25;
+  } else if (activeVariance < 80) {
+    score = (activeVariance / 80) * 45.0;
+  } else if (activeVariance < 350) {
+    score = 45.0 + ((activeVariance - 80) / (350 - 80)) * 43.0;
   } else {
-    score = 26.0 + ((Math.log(variance) - Math.log(120)) / (Math.log(2000) - Math.log(120))) * 74.0;
+    score = Math.min(98, 88.0 + Math.min(10, ((activeVariance - 350) / 1000) * 10.0));
   }
-  score = Math.max(0, Math.min(100, Math.round(score * 10) / 10));
-  return { score, variance: Math.round(variance * 10) / 10 };
+  score = Math.max(25, Math.min(100, Math.round(score * 10) / 10));
+  return { score, variance: Math.round(activeVariance * 10) / 10 };
 }
 
 // Edge & Stroke Continuity Analysis (Sobel gradient + continuity)
@@ -453,8 +468,8 @@ export async function runUniversalPackagingAnalysis(
       });
     } else {
       flags.push({
-        issue: 'OCR could not read a batch or lot number from this packaging photo.',
-        severity: 'medium',
+        issue: 'Batch number was not detected on this visible face of the packaging.',
+        severity: 'low',
       });
     }
 
@@ -598,11 +613,13 @@ export async function runUniversalPackagingAnalysis(
       verdict = 'SUSPICIOUS';
       rule = 'severe_outlier_fail_safe';
       confidence = Math.min(0.45, Math.round(finalScore) / 100);
-    } else if (finalScore >= 65.0) {
+    } else if (finalScore >= 52.0) {
       verdict = 'PASSED SCREENING';
-      confidence = Math.max(0.75, Math.round(finalScore) / 100);
+      confidence = Math.max(0.78, Math.round(finalScore) / 100);
     } else {
-      verdict = 'SUSPICIOUS';
+      verdict = 'INCONCLUSIVE';
+      rule = 'insufficient_text_features';
+      confidence = 0.50;
     }
 
     return {

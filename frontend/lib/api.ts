@@ -85,7 +85,33 @@ export async function analyzePackaging(
   brand = 'auto',
   includeAi = false,
 ): Promise<AnalysisResult> {
-  // Execute high-speed in-app computer vision, OCR, and date logic
+  // 1. Attempt High-Fidelity Multimodal AI Vision (/api/analyze)
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('brand', brand);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const aiResult = (await res.json()) as AnalysisResult;
+      if (aiResult && aiResult.verdict) {
+        return aiResult;
+      }
+    }
+  } catch (err) {
+    console.warn('Serverless AI analysis skipped, engaging in-app optical engine:', err);
+  }
+
+  // 2. High-Speed In-App Computer Vision & OCR Fallback Engine
   const result = await runUniversalPackagingAnalysis(file, brand);
 
   // If opted-in, request Gemini plain-language explanation
