@@ -17,4 +17,5 @@ backend/.env
 # OS
 .DS_Store
 *.pdf
+!MedVerify_Project_Report.pdf
 

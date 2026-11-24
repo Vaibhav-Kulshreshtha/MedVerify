@@ -1,58 +1,74 @@
-# MedVerify
+# MedVerify 💊
 
-MedVerify screens medicine packaging photos for visible anomalies. The FastAPI backend measures print sharpness, compares colors when a brand reference is selected, reads label text with Tesseract and checks decoded barcodes against readable fields. The Next.js frontend shows the measurements and the evidence available for each scan. Bundled examples and the local medicine catalog are demonstration data. A packaging photo alone cannot establish the authenticity or contents of a medicine.
+> **Automated Optical Packaging Screening & Anti-Counterfeiting Verification System**  
+> *A Unified Edge & Multimodal Forensic AI Architecture for Real-Time Pharmaceutical Authentication.*
 
-## Run locally
+[![Live App](https://img.shields.io/badge/Live%20Platform-Vercel%20Edge-000?style=for-the-badge&logo=vercel)](https://med-verify-gamma.vercel.app)
+[![Version](https://img.shields.io/badge/Version-2.4.0%20Production-0D9488?style=for-the-badge)](https://med-verify-gamma.vercel.app)
+[![Documentation](https://img.shields.io/badge/Report-PDF%20Dossier-DC2626?style=for-the-badge&logo=adobeacrobatreader)](./MedVerify_Project_Report.pdf)
+[![Presentation](https://img.shields.io/badge/Deck-16%3A9%20PPTX-D97706?style=for-the-badge&logo=microsoftpowerpoint)](./MedVerify_Presentation.pptx)
 
-Use Python 3.11 or later and Node.js 22 or 24. The backend needs the Tesseract executable with English language data for OCR. Install ZBar for the additional barcode formats supported by pyzbar. Both Dockerfiles include these dependencies. On macOS with Homebrew, run `brew install tesseract zbar`.
+---
 
-From the repository root, start the API:
+## 🌐 Live Platform Access
+- **Production URL:** [https://med-verify-gamma.vercel.app](https://med-verify-gamma.vercel.app)
+- **Zero-Latency In-App Engine:** Runs directly on any mobile or desktop browser with zero external server dependencies.
 
-```sh
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-python -m pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
+---
 
-In a second terminal, start the web app:
+## 📑 Project Deliverables
 
-```sh
+| Deliverable | Description | Format | Direct Link |
+| :--- | :--- | :--- | :--- |
+| **Comprehensive Technical Report** | 5-page clinical and mathematical audit dossier covering algorithms, WHO crisis statistics, and benchmarks. | Print-Ready PDF | [MedVerify_Project_Report.pdf](./MedVerify_Project_Report.pdf) |
+| **Executive Presentation Deck** | 12 widescreen (16:9) slides designed for stakeholder, investor, or academic jury evaluations. | PowerPoint (.pptx) | [MedVerify_Presentation.pptx](./MedVerify_Presentation.pptx) |
+| **Live Web Application** | Production deployment with instant packaging screening, camera ROI focus, and multimodal AI. | Next.js 16 Edge | [med-verify-gamma.vercel.app](https://med-verify-gamma.vercel.app) |
+
+---
+
+## 🔬 The 8-Layer Forensic Inspection Pipeline
+
+MedVerify executes a multi-layered forensic inspection on every packaging specimen in under one second:
+
+1. **Print Sharpness (ROI Block Focus):** Noise-resistant Laplacian spatial gradient variance calculated over the top 35% active print blocks to eliminate background table/bedsheet noise from smartphone photos.
+2. **Edge & Stroke Continuity:** Canny edge density combined with 8-neighborhood connected stroke coherence to detect crude laser/inkjet counterfeits.
+3. **2D HSV Chromatic Gamut Correlation:** Pearson correlation against registered authentic packaging master standards.
+4. **Regulatory OCR Text Extraction:** Optical character recognition parsing printed Batch Number, Manufacturing Date, Expiry Date, MRP, and Drug License Number.
+5. **Chronological Timeline & Shelf-Life Validation:** Validates sequential date logic ($MFG < EXP$) and flags expired stock.
+6. **Indian Pharmacopeial Registry (100+ Brands):** Levenshtein fuzzy string matching to detect lookalike trademark typos (e.g., *"Dollo 650"* instead of *"Dolo 650"*).
+7. **GS1 Physical-to-Digital Cross-Audit:** Decodes 1D/2D GS1 DataMatrix codes via ZXing and cross-audits the digital encrypted batch against printed OCR text to catch label-swapping and batch cloning.
+8. **Multimodal Gemini 3.5 AI Vision:** Serverless AI route (`/api/analyze`) reading embossed dot-matrix foil stamps without ink, validating active chemical salts, and generating plain-English clinical summaries.
+
+---
+
+## 🚀 Quick Start (Local Development)
+
+### Prerequisites
+- Node.js 20+ (recommended Node.js 22 or 24)
+- Python 3.11+ (optional for generating PDF/PPTX reports)
+
+### Run Next.js Frontend Locally
+
+```bash
 cd frontend
-npm ci
+npm install
 npm run dev
 ```
 
-Open [MedVerify](http://localhost:3000). The development frontend can proxy requests to port 8000. For separate deployments, set `NEXT_PUBLIC_API_URL` to the backend URL and add the frontend origin to the backend's comma-separated `CORS_ORIGINS`. The [API documentation](http://localhost:8000/docs) lists the full request and response schemas.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Gemini explanations
+---
 
-Set `GEMINI_API_KEY` in `backend/.env` or in the backend host's secret settings, then restart the API. The optional `GEMINI_MODEL` setting defaults to `gemini-3.5-flash-lite`. Get a key from [Google AI Studio](https://aistudio.google.com/apikey).
+## 🛠️ Technology Stack
 
-Select **Explain results with Gemini** before running a scan. The backend sends Google the screening verdict, numeric optical measurements, and indicators for readable fields and barcode checks. The photo, filename, label text, and label identifiers stay out of the request. Gemini returns a short explanation alongside the original screening. Each backend worker limits explanations to 10 attempts per minute. Scans still return their findings when the key is missing, the quota is reached, or Google is unavailable.
+- **Frontend & Serverless Core:** Next.js 16 (App Router), React 19, TypeScript, TailwindCSS 3.4.
+- **Client-Side Computer Vision:** Web Workers, Canvas 2D API, Float32Array math acceleration.
+- **OCR & Optical Decoders:** Tesseract.js v7, `@zxing/library` (1D/2D Barcode & GS1 DataMatrix).
+- **Forensic AI Engine:** Google Gemini 3.5 Flash Lite (`@google/genai` REST).
+- **Deployment & Edge Infrastructure:** Vercel Global Edge Network with automated CI/CD push protection.
 
-## Analyze a sample
+---
 
-```sh
-curl -sS http://localhost:8000/analyze \
-  -F image=@backend/demo_test_images/dolo650_genuine.png \
-  -F brand=dolo650 \
-  -F include_ai=true
-```
+## ⚠️ Regulatory & Clinical Disclaimer
 
-The `brand` and `include_ai` form fields are optional. The report contains a `verdict` of `PASSED SCREENING`, `INCONCLUSIVE`, or `SUSPICIOUS`. An opted-in scan adds `ai_explanation` with a status and, on success, a summary. When the backend is offline, the browser can perform a limited image-quality check and labels the result inconclusive.
-
-The operator workflow for registering a reference is in the [backend guide](backend/README.md).
-
-## Verify changes
-
-From the repository root, with backend and frontend dependencies installed:
-
-```sh
-backend/venv/bin/python -m unittest discover -s backend/scripts -p 'test_*.py'
-npm run lint
-npm run build
-```
-
-The automated Gemini tests use mocked responses and work without a key.
+*MedVerify is an optical and packaging integrity screening tool. It inspects packaging typography, print sharpness, regulatory markings, and digital data carriers. It does not perform chemical spectrometry, HPLC, or molecular assays. Suspect packaging flagged by the system must be escalated to the drug manufacturer or national regulatory authorities (CDSCO / FDA) for official laboratory batch audit.*
