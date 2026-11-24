@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-const backendUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+const backendUrl = (process.env.NEXT_PUBLIC_API_URL || 'https://medverify-backend-stbv.onrender.com').replace(/\/+$/, '');
 
 const nextConfig = {
   // Allow the backend's 15 MiB file limit plus multipart headers.

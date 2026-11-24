@@ -2,7 +2,7 @@ import { AnalysisResult, BackendHealthResponse } from './types';
 import { runClientForensicAnalysis } from './clientForensicEngine';
 
 export const DEFAULT_API_BASE_URL =
-  (process.env.NEXT_PUBLIC_API_URL?.trim() || '/api/backend').replace(/\/+$/, '');
+  (process.env.NEXT_PUBLIC_API_URL?.trim() || 'https://medverify-backend-stbv.onrender.com').replace(/\/+$/, '');
 
 export interface MedicineBrand {
   id: string;
